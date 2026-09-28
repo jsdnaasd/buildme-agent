@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1000" viewBox="0 0 1200 1000" role="img" aria-labelledby="title desc">
+  <title id="title">鹈鹕 · 潮间静立</title>
+  <desc id="desc">手绘矢量插画：一只白鹈鹕站在海边礁石上，侧向右方，具有细长的金橙色鸟喙、宽大的喉囊、弯曲的长颈、层叠的象牙白羽毛、黑色飞羽和橙色蹼足。背景为浅青色海湾与淡金色日轮。</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#d9e9e4"/><stop offset="1" stop-color="#edf0df"/>
+    </linearGradient>
+    <linearGradient id="plumage" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fffdf1"/><stop offset=".56" stop-color="#f5f0dd"/><stop offset="1" stop-color="#bacbc4"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="0" y1="0" x2=".8" y2="1">
+      <stop stop-color="#fffdf1"/><stop offset=".65" stop-color="#e9e7d5"/><stop offset="1" stop-color="#a7bab4"/>
+    </linearGradient>
+    <linearGradient id="pouch" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#f7cf7e"/><stop offset=".55" stop-color="#e7a154"/><stop offset="1" stop-color="#c77842"/>
+    </linearGradient>
+    <linearGradient id="bill" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ffdf86"/><stop offset="1" stop-color="#eeaa4e"/>
+    </linearGradient>
+    <clipPath id="scene"><circle cx="598" cy="458" r="367"/></clipPath>
+  </defs>
+
+  <!-- Quiet coastal setting; every visible element is native vector geometry. -->
+  <rect width="1200" height="1000" fill="#f7f3e8"/>
+  <g id="coast" clip-path="url(#scene)">
+    <circle cx="598" cy="458" r="367" fill="url(#sky)"/>
+    <circle cx="739" cy="295" r="137" fill="#e8c77d" opacity=".67"/>
+    <circle cx="739" cy="295" r="115" fill="#f4d992" opacity=".45"/>
+    <path d="M205 589 Q309 558 395 580 T587 579 T780 568 T1005 575 V856 H205Z" fill="#b5cec5"/>
+    <path d="M205 631 Q360 604 504 632 T788 628 T1008 610 V867 H205Z" fill="#94b8ae"/>
+    <path d="M191 727 Q350 697 524 713 T995 701 V853 H191Z" fill="#76a096"/>
+    <g fill="none" stroke="#e9eedf" stroke-width="3" stroke-linecap="round" opacity=".8">
+      <path d="M249 613H335 M766 601H856 M871 620H941 M296 655H380 M738 652H831 M856 681H917 M275 700H332 M754 735H867 M289 763H382 M689 784H777"/>
+    </g>
+    <g fill="none" stroke="#608a82" stroke-width="2" opacity=".55">
+      <path d="M723 679h54m33 0h42M328 735h69M805 758h83M487 791h86"/>
+    </g>
+    <g fill="none" stroke="#6e8d81" stroke-width="2.5" stroke-linecap="round">
+      <path d="M331 272q12-12 25 0q13-12 25 0M807 189q9-8 18 0q9-8 18 0M374 221q7-7 14 0q7-7 14 0"/>
+    </g>
+  </g>
+
+  <g id="rock" stroke-linejoin="round">
+    <ellipse cx="528" cy="826" rx="255" ry="20" fill="#325951" opacity=".13"/>
+    <path d="M270 810 311 768 397 750 431 721 540 710 621 727 653 757 715 775 757 818Q524 852 270 810Z" fill="#6c8075" stroke="#435c53" stroke-width="3"/>
+    <path d="M311 768 397 750 431 721 540 710 621 727 555 747 457 746 405 779Z" fill="#a5ad92"/>
+    <path d="M431 721 468 735 555 747 621 727 579 727 534 719Z" fill="#c2c3a4"/>
+    <path d="M405 779 457 746 555 747 518 791 544 831 434 830Z" fill="#87937e"/>
+    <path d="M555 747 621 727 653 757 620 795 544 831 518 791Z" fill="#536e62"/>
+    <path d="M653 757 715 775 757 818 644 826 620 795Z" fill="#7f8e77"/>
+    <g fill="none" stroke="#425f53" stroke-width="2" opacity=".65">
+      <path d="m457 746-19 31 18 12-9 21M653 757l-35 17-12 29M329 795l47-5m307 14 33 6"/>
+    </g>
+    <g fill="#bac0a0"><ellipse cx="371" cy="770" rx="12" ry="3"/><ellipse cx="470" cy="732" rx="17" ry="3"/><ellipse cx="699" cy="796" rx="11" ry="3"/></g>
+  </g>
+
+  <g id="legs" stroke="#765b39" stroke-width="3" stroke-linejoin="round">
+    <path d="M493 644 516 646 511 705 532 732 513 738 489 709Z" fill="#ce8c49"/>
+    <path d="M562 633 586 632 579 704 597 728 578 737 555 708Z" fill="#e4a354"/>
+    <path d="M511 723Q532 728 552 746L518 743 480 755 486 743 462 746 490 729Z" fill="#e2a052"/>
+    <path d="M579 724Q603 726 631 744L598 743 573 751 544 746 561 736Z" fill="#efb35e"/>
+    <g fill="none" stroke="#a96e3d" stroke-width="2"><path d="m510 732-30 23m30-23 8 11m61-9-6 17m6-17 19 9M497 692l13 3m-14-13 15 3m51 4 15 3m-14-15 15 3"/></g>
+  </g>
+
+  <g id="pelican" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Tail and dark primaries sit behind the body and folded wing. -->
+    <path d="M336 542Q259 548 184 525L213 561 174 547 207 584 181 575Q232 634 320 641L384 610Z" fill="#344a45" stroke="#344a45" stroke-width="4"/>
+    <path d="M201 543q60 51 120 63M206 565q41 39 95 52" fill="none" stroke="#70867c" stroke-width="3"/>
+
+    <path d="M231 592C206 561 223 514 278 478C338 438 405 436 465 454C486 460 505 455 517 444C546 415 551 371 547 333C543 302 529 273 545 239C560 205 590 189 624 195C663 201 690 226 690 259C690 293 666 312 651 335C632 363 630 392 648 427C671 470 684 523 650 579C618 632 550 674 461 681C362 689 276 650 231 592Z" fill="url(#plumage)" stroke="#435b51" stroke-width="3.8"/>
+
+    <!-- Cool reflected light down the inner neck, warm crest above. -->
+    <path d="M648 273C658 299 629 323 616 350C599 383 605 421 619 449C641 494 626 541 590 573C648 542 665 489 642 443C619 397 624 363 645 333C660 311 683 285 676 264Z" fill="#a9bfb5" opacity=".7"/>
+    <path d="M550 264C559 220 589 201 619 208C649 213 671 234 674 251C648 232 634 224 613 226C585 225 568 244 550 264Z" fill="#eee0aa"/>
+    <path d="M547 250 540 237 550 241 549 224 559 230 563 213 570 220 580 203 584 213" fill="#f6edcb" stroke="#687b64" stroke-width="2"/>
+    <path d="M564 278C559 310 578 342 573 378C570 414 552 445 535 466" fill="none" stroke="#fffdf4" stroke-width="13"/>
+    <path d="M578 299q-1 23 8 42m-7 20q2 25-5 46m-8 13-11 24" fill="none" stroke="#d2d8c5" stroke-width="2.3"/>
+    <path d="M640 453q16 44-6 76m-6 16-15 23" fill="none" stroke="#eef0df" stroke-width="4"/>
+
+    <!-- Folded wing: independent overlapping feather contours. -->
+    <path d="M253 527C303 475 420 461 507 509C543 529 553 553 537 580C491 638 368 646 268 601L215 563Z" fill="#334842" stroke="#435b51" stroke-width="3"/>
+    <g fill="none" stroke="#7b9185" stroke-width="2.5">
+      <path d="M235 559q90 69 212 53M254 548q91 68 207 54M280 540q80 55 195 48M306 533q85 48 183 40"/>
+    </g>
+    <path d="M252 521C306 471 408 465 480 496C516 511 540 534 536 553C531 575 508 591 480 599L457 600 467 587Q443 607 415 607L434 591Q405 611 379 601L398 586Q368 601 345 591L365 576Q330 586 310 573L332 560Q294 567 277 552L293 541Q266 545 252 532Z" fill="url(#wing)" stroke="#758a7d" stroke-width="2.4"/>
+    <path d="M262 518C321 479 407 481 466 505C492 516 516 533 520 547C471 520 428 517 387 523C341 529 297 535 262 518Z" fill="#fffcef"/>
+    <g fill="none" stroke="#9caa95" stroke-width="2">
+      <path d="M293 541q60-15 118 4M332 560q56-15 108-3M365 576q57-10 102-4M398 586q44-9 84-13M434 591q35-6 63-23M467 587q24-11 38-26"/>
+      <path d="M307 512q10 13 29 6m8-13q9 14 29 8m11-9q8 15 28 10m9-4q5 14 23 13m-111 6q8 13 27 8m11-8q8 13 28 9m11-4q7 13 25 11m12-2q5 13 22 11"/>
+    </g>
+    <g fill="none" stroke="#fffdf2" stroke-width="3" opacity=".9">
+      <path d="M277 519q17-9 35-11M306 539q32-5 56-3M346 559q31-5 50-2M384 575l35-1M420 585l23-4"/>
+    </g>
+    <g fill="none" stroke="#91a596" stroke-width="2.2">
+      <path d="m282 615 15 8m6-2 17 9m11-1 16 8m13-3 17 8m12-2 17 6m13-4 16 6m15-5 16 4m16-6 15 2m13-9 13 1M540 611l-12 11m34-26-11 11m28-29-8 11"/>
+    </g>
+    <path d="M324 647q91 36 178 9" fill="none" stroke="#a9b9a9" stroke-width="3"/>
+
+    <!-- The gular pouch hangs from the entire lower mandible. -->
+    <path d="M668 277C719 292 848 312 985 329C943 351 898 364 850 390C800 417 754 437 715 412C687 394 674 350 648 319Z" fill="url(#pouch)" stroke="#805c37" stroke-width="3.3"/>
+    <path d="M661 308C697 326 706 373 730 390C770 419 824 389 867 372C808 414 754 434 722 410C695 389 685 345 661 308Z" fill="#f4be70"/>
+    <g fill="none" stroke="#ab723f" stroke-width="1.6" opacity=".65">
+      <path d="M686 318Q729 402 755 410M708 323q47 77 71 83M737 329q47 62 69 66M768 334q40 46 59 52M802 338l43 40M834 341l28 27M866 342l15 16"/>
+    </g>
+    <path d="M666 275C760 281 890 305 982 322C994 324 1000 330 996 337C992 344 983 348 976 347L979 335C858 321 756 309 665 298Z" fill="url(#bill)" stroke="#7f6139" stroke-width="3"/>
+    <path d="M680 286C768 292 885 311 969 325" fill="none" stroke="#fff0ae" stroke-width="4"/>
+    <path d="M671 299 979 334" fill="none" stroke="#986b36" stroke-width="2.2"/>
+    <path d="M974 323q18 0 22 9l-13 9-4-7Z" fill="#c47b39"/>
+    <path d="m697 287 19 3" fill="none" stroke="#957842" stroke-width="2.8"/>
+
+    <!-- Eye: bare orbital skin, iris, pupil and a small specular highlight. -->
+    <path d="M618 251Q637 238 656 252L675 273 654 289 628 277Z" fill="#e5b75d"/>
+    <path d="M651 257q14 6 22 20l-14 15-12-9" fill="#d3a157"/>
+    <ellipse cx="638" cy="258" rx="13" ry="12" fill="#fbdf8a" stroke="#7b7750" stroke-width="2"/>
+    <circle cx="639" cy="258" r="7.6" fill="#33473e"/>
+    <circle cx="640" cy="258" r="4.7" fill="#192e2a"/>
+    <circle cx="641" cy="255" r="2.5" fill="#fffdf4"/>
+    <path d="M621 251q15-13 30-1" fill="none" stroke="#4a5c48" stroke-width="2.8"/>
+    <path d="M607 239q-13 7-19 18m21 15-15 11m18 1-15 11" fill="none" stroke="#bcc4aa" stroke-width="2"/>
+  </g>
+
+  <g id="shore-grass" fill="none" stroke-linecap="round">
+    <path d="M267 831q-3-51-25-86m29 85q11-68 1-112m-7 96q-29-34-47-39M795 823q-1-55 29-89m-22 81q25-31 45-34m-54 37q-17-42-12-68" stroke="#648476" stroke-width="3"/>
+    <path d="M241 747q-14-3-17-21 17 6 17 21M272 747q-14-7-12-25 16 10 12 25M270 779q17-7 19-23-16 8-19 23M815 748q3-18 21-24-3 17-21 24M786 781q-16-5-21-22 17 5 21 22M826 793q6-15 23-14-6 13-23 14" fill="#648476" stroke="none"/>
+  </g>
+  <g fill="#a4b1a0"><ellipse cx="350" cy="849" rx="9" ry="3"/><ellipse cx="700" cy="850" rx="12" ry="3"/><ellipse cx="733" cy="840" rx="6" ry="2"/></g>
+</svg>

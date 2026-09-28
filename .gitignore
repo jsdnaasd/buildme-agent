@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.piharness/
+.env
+coverage/
+release/
+.DS_Store

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-theme-mode="system">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'" />
+    <title>BuildMe</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#prompt">跳到输入框</a>
+    <main class="app-shell">
+      <aside id="sidebar" class="sidebar" aria-label="主导航">
+        <div class="window-drag-region" aria-hidden="true"></div>
+        <header class="identity">
+          <img class="identity-mark" src="../assets/buildme-mark.png" alt="" aria-hidden="true" />
+          <div class="identity-copy">
+            <strong id="agent-name">BuildMe</strong>
+            <small>Build to understand. Understand to build. Learn Agents by building yours.</small>
+          </div>
+          <button id="close-sidebar" class="icon-button close-sidebar" type="button" aria-label="关闭侧边栏">×</button>
+        </header>
+
+        <button id="new-chat" class="new-chat" type="button">
+          <span aria-hidden="true">＋</span><span>新对话</span><kbd>⌘N</kbd>
+        </button>
+
+        <section class="history" aria-labelledby="history-title">
+          <div class="section-heading">
+            <h2 id="history-title">最近会话</h2>
+            <button id="refresh-sessions" class="icon-button" type="button" aria-label="刷新会话">↻</button>
+          </div>
+          <div id="session-list" class="session-list" aria-live="polite"></div>
+        </section>
+
+        <footer class="sidebar-footer">
+          <button id="settings" class="sidebar-action" type="button">
+            <span class="sidebar-action-icon" aria-hidden="true">⌘</span><span>模型与偏好</span><kbd>⌘,</kbd>
+          </button>
+          <button id="plugin-market" class="plugin-market-entry" type="button">
+            <span class="plugin-market-icon" aria-hidden="true">✦</span><span><strong>插件市场</strong><small>Pi 社区热门扩展</small></span><span aria-hidden="true">›</span>
+          </button>
+          <div class="local-badge"><span aria-hidden="true"></span>BuildMe · 本地 Agent</div>
+        </footer>
+      </aside>
+
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭侧边栏" tabindex="-1"></button>
+
+      <section class="workspace" aria-label="对话工作区">
+        <header class="workspace-header">
+          <button id="open-sidebar" class="icon-button open-sidebar" type="button" aria-label="打开侧边栏" aria-expanded="false">☰</button>
+          <div class="conversation-title">
+            <strong id="chat-title">新对话</strong>
+            <span id="status" class="status" role="status" aria-live="polite"></span>
+          </div>
+          <div class="header-actions">
+            <button id="full-edition" class="edition-switch" type="button" title="切换 Build 模式（轻量）/ 全量版（DSH 引擎）">Build 模式 · 轻量</button>
+            <button id="header-settings" class="header-action" type="button">设置</button>
+          </div>
+        </header>
+
+        <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text">
+          <div class="welcome">
+            <img class="welcome-mark" src="../assets/buildme-mark.png" alt="" aria-hidden="true" />
+            <h1>接下来做什么？</h1>
+          </div>
+        </div>
+
+        <footer class="composer-dock">
+          <div class="context-bar" aria-label="当前运行环境">
+            <div id="edition-chip" class="edition-chip" hidden aria-live="polite"></div>
+            <button id="workspace-chip" class="context-chip" type="button" title="选择工作文件夹">
+              <span aria-hidden="true">▱</span><span id="workspace-label">选择文件夹</span>
+            </button>
+            <div class="menu-anchor">
+              <button id="permission-chip" class="context-chip" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="permission-menu">
+                <span aria-hidden="true">◇</span><span id="permission-label">每次询问</span><span class="chevron" aria-hidden="true">⌄</span>
+              </button>
+              <div id="permission-menu" class="floating-menu permission-menu" role="menu" aria-label="权限模式" hidden>
+                <button id="permission-ask" type="button" role="menuitemradio" data-permission="ask" aria-checked="true">
+                  <span><strong>每次询问</strong><small>只读自动，写入与命令需确认</small></span><i aria-hidden="true">✓</i>
+                </button>
+                <button id="permission-workspace" type="button" role="menuitemradio" data-permission="workspace-write" aria-checked="false">
+                  <span><strong>工作区内自动执行</strong><small>工作区文件自动，命令仍确认</small></span><i aria-hidden="true">✓</i>
+                </button>
+                <button id="permission-bypass" type="button" role="menuitemradio" data-permission="bypass" aria-checked="false">
+                  <span><strong>完全访问（不审批）</strong><small>不审批，也不限制路径边界</small></span><i aria-hidden="true">✓</i>
+                </button>
+              </div>
+            </div>
+            <button id="model-chip" class="context-chip model-chip" type="button" title="配置模型">
+              <span class="connection-dot" aria-hidden="true"></span><span id="model-label">选择模型</span><span class="chevron" aria-hidden="true">⌄</span>
+            </button>
+          </div>
+
+          <form id="composer" class="composer">
+            <label class="sr-only" for="prompt">描述任务或提出问题</label>
+            <textarea id="prompt" rows="1" maxlength="100000" placeholder="描述任务或提出问题" aria-describedby="composer-hint"></textarea>
+            <button id="send" class="send-button" type="submit" aria-label="发送消息" title="发送（Enter）">↑</button>
+          </form>
+          <p id="composer-hint" class="composer-hint">Enter 发送 · Shift + Enter 换行</p>
+        </footer>
+      </section>
+    </main>
+
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <form id="settings-form" class="settings-form">
+        <header class="dialog-header">
+          <div><h2 id="settings-title">模型与偏好</h2><p>连接官方服务、本地模型或任意兼容中转站。</p></div>
+          <button id="close-settings" class="icon-button" type="button" aria-label="关闭设置">×</button>
+        </header>
+
+        <section class="settings-section" aria-labelledby="connection-title">
+          <div class="settings-section-heading">
+            <h3 id="connection-title">模型连接</h3><span id="connection-state" class="connection-state">尚未连接</span>
+          </div>
+          <div class="saved-connection-row">
+            <label class="field grow"><span>已保存连接</span><select id="connection-profile" aria-label="已保存连接"></select></label>
+            <button id="new-connection" class="small-button" type="button">新增</button>
+            <button id="delete-connection" class="small-button danger-button" type="button">删除</button>
+          </div>
+          <div class="field-grid">
+            <label class="field"><span>连接名称</span><input id="connection-name" name="name" autocomplete="off" placeholder="例如：我的中转站" /></label>
+            <label class="field"><span>服务商</span>
+              <select id="provider" name="provider">
+                <option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option><option value="openrouter">OpenRouter</option><option value="groq">Groq</option>
+                <option value="mistral">Mistral AI</option><option value="xai">xAI</option><option value="dashscope">通义千问 / DashScope</option>
+                <option value="ark">豆包 / 火山方舟</option><option value="moonshot">月之暗面 / Kimi</option><option value="zhipu">智谱 / GLM</option>
+                <option value="minimax">MiniMax</option><option value="siliconflow">硅基流动</option><option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option><option value="openai-compatible">OpenAI 兼容 / 中转站</option>
+              </select>
+            </label>
+          </div>
+          <label class="field"><span>模型</span><input id="model" name="model" list="model-suggestions" autocomplete="off" placeholder="输入模型 ID" required /></label>
+          <datalist id="model-suggestions"><option value="deepseek-chat"></option><option value="deepseek-reasoner"></option><option value="gpt-5"></option><option value="claude-sonnet-4-5"></option><option value="gemini-2.5-pro"></option><option value="qwen3-coder-plus"></option></datalist>
+          <label class="field"><span>API 地址 <em>官方地址会自动填写，也可使用中转站</em></span><input id="base-url" name="baseUrl" type="url" spellcheck="false" placeholder="https://api.example.com/v1" /></label>
+          <label class="field"><span id="api-key-label">API Key <em>留空即保留当前密钥</em></span><span class="api-key-input"><input id="api-key" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="输入 API Key" /><button id="paste-api-key" type="button" title="从系统剪贴板粘贴 API Key">粘贴</button></span></label>
+          <p id="connection-auth-hint" class="privacy-note credential-note"><span aria-hidden="true">●</span><span id="connection-auth-copy">连接信息仅保存在这台设备上，密钥不会显示在界面中。</span></p>
+          <p class="privacy-note"><span aria-hidden="true">●</span>连接信息仅保存在这台设备上，密钥不会显示在界面中。</p>
+        </section>
+
+        <section class="settings-section" aria-labelledby="appearance-title">
+          <h3 id="appearance-title">外观</h3>
+          <div class="theme-picker" role="radiogroup" aria-label="主题">
+            <button id="theme-system" type="button" role="radio" data-theme-option="system" aria-checked="true">跟随系统</button>
+            <button id="theme-light" type="button" role="radio" data-theme-option="light" aria-checked="false">亮色</button>
+            <button id="theme-dark" type="button" role="radio" data-theme-option="dark" aria-checked="false">深色</button>
+          </div>
+        </section>
+
+        <footer class="dialog-actions"><button id="cancel-settings" class="secondary-button" type="button">取消</button><button class="primary-button" type="submit">保存连接</button></footer>
+      </form>
+    </dialog>
+
+    <dialog id="plugin-market-dialog" class="plugin-market-dialog" aria-labelledby="plugin-market-title">
+      <section class="market-shell">
+        <header class="dialog-header">
+          <div><h2 id="plugin-market-title">插件市场</h2><p>浏览 Pi 社区作者发布、维护和讨论的第三方扩展。</p></div>
+          <button id="close-plugin-market" class="icon-button" type="button" aria-label="关闭插件市场">×</button>
+        </header>
+        <section class="market-section" aria-labelledby="pi-market-title">
+          <div class="market-heading"><span class="market-badge pi">Pi</span><div><h3 id="pi-market-title">Pi 社区热门插件</h3><p>内容来自社区第三方作者。可按 npm 月下载量、GitHub Star 和社区近期讨论热度浏览。</p></div></div>
+          <div class="market-actions"><button id="open-pi-community-popular" class="primary-button" type="button">热门插件榜</button><button id="open-pi-community-github" class="secondary-button" type="button">GitHub 热门</button><button id="open-pi-community-reddit" class="secondary-button" type="button">社区讨论</button></div>
+          <p class="market-note">支持的社区包来源：<code>npm:包名</code>、<code>git:github.com/作者/仓库</code> 或 HTTPS 仓库链接。</p>
+        </section>
+      </section>
+    </dialog>
+
+    <dialog id="approval-dialog" class="approval-dialog" aria-labelledby="approval-title">
+      <section class="approval-card">
+        <header><span class="approval-icon" aria-hidden="true">◇</span><div><h2 id="approval-title">Agent 请求执行工具</h2><p>检查本次操作后选择是否继续。</p></div></header>
+        <dl><div><dt>工具</dt><dd id="approval-tool">—</dd></div><div><dt>参数</dt><dd><pre id="approval-arguments">—</pre></dd></div></dl>
+        <footer><button id="deny-approval" class="secondary-button" type="button">拒绝</button><button id="allow-approval" class="primary-button" type="button">允许本次</button></footer>
+      </section>
+    </dialog>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
