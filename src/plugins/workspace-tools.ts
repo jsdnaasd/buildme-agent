@@ -89,12 +89,12 @@ function approvalWithAbort(
 	ctx: import("@deepseek-ai/cordis").Context,
 	request: ToolCallRequest,
 	signal?: AbortSignal,
-): Promise<boolean> {
-	if (signal?.aborted) return Promise.resolve(false);
-	const pending = ctx.serial("piharness/tool-approval-request", request).then((approved) => approved === true);
+): Promise<boolean | undefined> {
+	if (signal?.aborted) return Promise.resolve(undefined);
+	const pending = ctx.serial("piharness/tool-approval-request", request);
 	if (!signal) return pending;
-	return new Promise<boolean>((resolveApproval) => {
-		const onAbort = (): void => resolveApproval(false);
+	return new Promise<boolean | undefined>((resolveApproval) => {
+		const onAbort = (): void => resolveApproval(undefined);
 		signal.addEventListener("abort", onAbort, { once: true });
 		void pending.then(
 			(approved) => {
@@ -103,7 +103,7 @@ function approvalWithAbort(
 			},
 			() => {
 				signal.removeEventListener("abort", onAbort);
-				resolveApproval(false);
+				resolveApproval(undefined);
 			},
 		);
 	});
@@ -202,8 +202,8 @@ export const permissionModePolicy = definePlugin(
 				}
 				const approved = await approvalWithAbort(ctx, request, signal);
 				return approved
-					? { allow: true }
-					: { allow: false, reason: `Approval was not granted for path: ${boundary.requested}` };
+					? { allow: true, source: "user" }
+					: { allow: false, source: approved === false ? "user" : "policy", reason: `Approval was not granted for path: ${boundary.requested}` };
 			}
 
 			if (isReadOnlyRequest(request)) return { allow: true };
@@ -211,10 +211,9 @@ export const permissionModePolicy = definePlugin(
 
 			const approved = await approvalWithAbort(ctx, request, signal);
 			return approved
-				? { allow: true }
-				: { allow: false, reason: `Approval was not granted for tool: ${request.toolName}` };
+				? { allow: true, source: "user" }
+				: { allow: false, source: approved === false ? "user" : "policy", reason: `Approval was not granted for tool: ${request.toolName}` };
 		}),
 );
 
 export const workspacePlugins: readonly PiharnessPlugin<any>[] = [workspaceToolsPi, permissionModePolicy];
-

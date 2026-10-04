@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
+import { TraceStore } from "../src/core/trace-store.ts";
+import { redactTrace } from "../src/core/trace-redact.ts";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const appData = mkdtempSync(join(tmpdir(), "my-agent-desktop-main-"));
@@ -136,7 +139,7 @@ beforeAll(async () => {
     applyProxyFromEnv: vi.fn(() => false),
     hasProxyEnv: vi.fn(() => false),
     proxyUrlFromPac: vi.fn(() => undefined),
-    createApp,
+    createApp, TraceStore, redactTrace,
     initProfile: vi.fn(async (path) => path),
     loadProfile: vi.fn(async () => ({ profile: { settings: { name: "BuildMe" } } })),
   }));
@@ -196,7 +199,7 @@ describe("Desktop main-process state", () => {
     expect(JSON.stringify(state)).not.toContain("inherited-key");
     expect(JSON.stringify(state)).not.toContain("legacy-secret");
     expect(JSON.stringify(state)).not.toContain("apiKey");
-    expect(runtime.ctx.on).toHaveBeenCalledTimes(2);
+    expect(runtime.ctx.on).toHaveBeenCalledTimes(3);
     expect(runtimeListeners.has("piharness/agent-event")).toBe(true);
     expect(runtimeListeners.has("piharness/tool-approval-request")).toBe(true);
 		const migratedProfile = JSON.parse(readFileSync(join(appData, "profile.json"), "utf8"));
@@ -275,6 +278,7 @@ describe("Desktop main-process state", () => {
       workspacePath: canonicalWorkspace,
       permissionMode: "workspace-write",
       edition: "full",
+      recordRawRequests: true,
     });
   });
 
@@ -369,6 +373,35 @@ describe("Desktop main-process state", () => {
     const abort = ipcHandlers.get("desktop:abort");
     await expect(abort(undefined, undefined)).resolves.toBe(true);
     expect(agents.abort).toHaveBeenLastCalledWith("active-session");
+  });
+
+  it("saves raw-request preferences and serves redacted live and historical X 光 data", async () => {
+    const setRaw = ipcHandlers.get("desktop:set-record-raw-requests");
+    await expect(setRaw(undefined, false)).resolves.toBe(false);
+    expect((await ipcHandlers.get("desktop:state")()).recordRawRequests).toBe(false);
+    expect(JSON.parse(readFileSync(join(appData, "desktop-settings.json"), "utf8")).recordRawRequests).toBe(false);
+    await expect(setRaw(undefined, "false")).rejects.toThrow("选项");
+    await setRaw(undefined, true);
+    const turn = {
+      id: "trace-turn", sessionId: "trace-session", turnIndex: 1, engine: "pi", status: "running",
+      startedAt: "2026-10-05T00:00:00Z", userPrompt: "sk-test-AAAAAAAAAAAAAAAAAAAA",
+      model: { provider: "faux", id: "faux-1" }, promptSegments: [], events: [],
+      fidelity: { promptSegments: true, rawRequest: true, usage: "exact", approvals: true, subagents: false, compaction: true },
+      usage: { inputTokens: 10, outputTokens: 2, modelCalls: 1, toolCalls: 0, durationMs: 100 },
+    };
+    const notify = runtimeListeners.get("piharness/trace");
+    notify({ type: "turn-start", turn });
+    expect((await ipcHandlers.get("desktop:xray-turn")(undefined, turn.id)).status).toBe("running");
+    notify({ type: "turn-end", turn: { ...turn, status: "done" } });
+    const summaries = await ipcHandlers.get("desktop:xray-turns")(undefined, turn.sessionId);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].usage.inputTokens).toBe(10);
+    expect(summaries[0]).not.toHaveProperty("events");
+    expect(summaries[0]).not.toHaveProperty("userPrompt");
+    const history = await ipcHandlers.get("desktop:xray-turn")(undefined, turn.id);
+    expect(history.status).toBe("done");
+    expect(JSON.stringify(history)).not.toContain("sk-test-AAAAAAAAAAAAAAAAAAAA");
+    expect(JSON.stringify(windows[0].webContents.send.mock.calls.filter(([channel]) => channel === "desktop:xray"))).not.toContain("sk-test-AAAAAAAAAAAAAAAAAAAA");
   });
 
   it("allows the final model connection to be removed", async () => {

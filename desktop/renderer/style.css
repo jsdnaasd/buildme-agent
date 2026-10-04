@@ -223,3 +223,6 @@ dialog::backdrop { background: rgb(0 0 0 / 56%); backdrop-filter: blur(3px); }
 .edition-chip { display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 1px solid color-mix(in srgb, #c9603c 32%, var(--border)); border-radius: 10px; color: #9b482c; background: #fff8f4; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: min(540px, 52vw); }
 [data-theme="dark"] .edition-switch.active, [data-theme="dark"] .edition-chip { color: #f0b199; background: rgba(201, 96, 60, .12); border-color: rgba(240, 177, 153, .32); }
 @media (max-width: 720px) { .edition-chip { display: none; } }
+
+.trace-setting { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.trace-setting input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }

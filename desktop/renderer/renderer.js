@@ -67,6 +67,7 @@ let appState = {
   activeConnectionId: null,
   permissionMode: "ask",
   theme: "system",
+  recordRawRequests: true,
   edition: "standard",
   fullTools: [],
   workspace: null,
@@ -94,7 +95,7 @@ function mergeState(result) {
   const value = result?.state || result;
   if (!value || typeof value !== "object") return;
   const patch = {};
-  for (const key of ["name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools"]) {
+  for (const key of ["name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools", "recordRawRequests"]) {
     if (value[key] !== undefined) patch[key] = value[key];
   }
   appState = { ...appState, ...patch };
@@ -486,6 +487,7 @@ function syncConnectionSummary() {
 }
 
 function openSettings() {
+  $("#record-raw-requests").checked = appState.recordRawRequests;
   const connection = activeConnection();
   loadConnectionForm(connection);
   syncConnectionSummary();
@@ -668,6 +670,19 @@ elements.pasteApiKey.addEventListener("click", async () => {
 });
 elements.provider.addEventListener("change", onProviderChange);
 for (const button of $$('[data-theme-option]')) button.addEventListener("click", () => void selectTheme(button.dataset.themeOption));
+$("#record-raw-requests").addEventListener("change", async (event) => {
+  const checkbox = event.target;
+  checkbox.disabled = true;
+  try {
+    appState.recordRawRequests = await api.setRecordRawRequests(checkbox.checked);
+    setStatus("X 光记录设置已保存，下一回合生效。");
+  } catch (error) {
+    checkbox.checked = appState.recordRawRequests;
+    setStatus(errorText(error), "error");
+  } finally {
+    checkbox.disabled = false;
+  }
+});
 
 elements.connectionProfile.addEventListener("change", async () => {
   const id = elements.connectionProfile.value;

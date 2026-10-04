@@ -179,7 +179,7 @@ export default plugin;
 				workspacePath: fixture.dir,
 				permissionMode: "bypass",
 			});
-			expect(approved).toEqual({ allow: true });
+			expect(approved).toEqual({ allow: true, source: "user" });
 			expect(denied).toMatchObject({ allow: false });
 			expect(bypassed).toEqual({ allow: true });
 			expect(requests).toEqual(["write", "bash"]);

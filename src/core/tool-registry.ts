@@ -4,6 +4,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Service } from "@deepseek-ai/cordis";
 
 import type { AgentEdition, RegisteredTool, ToolCallRequest, ToolGate, ToolGateDecision } from "../contracts.js";
+import type { TraceCollector } from "./trace-collector.js";
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
@@ -13,6 +14,8 @@ export interface ToolExecutionScope {
 	readonly permissionMode: "ask" | "workspace-write" | "bypass";
 	readonly edition?: AgentEdition;
 	readonly connection?: import("../contracts.js").AgentConnection;
+	readonly trace?: TraceCollector;
+	readonly recordRawRequests?: boolean;
 }
 
 /**
@@ -72,6 +75,7 @@ export class ToolRegistry extends Service {
 	}
 
 	async authorize(request: ToolCallRequest, signal?: AbortSignal): Promise<ToolGateDecision> {
+		let source: "user" | undefined;
 		for (const gate of this.gates.values()) {
 			if (signal?.aborted) {
 				const aborted: ToolGateDecision = { allow: false, reason: "Tool request was aborted.", terminate: true };
@@ -80,6 +84,7 @@ export class ToolRegistry extends Service {
 			}
 			try {
 				const decision = await gate(request, signal);
+				if (decision.source === "user") source = "user";
 				if (!decision.allow) {
 					this.ctx.emit("piharness/tool-authorized", request, decision);
 					return decision;
@@ -94,7 +99,7 @@ export class ToolRegistry extends Service {
 				return denied;
 			}
 		}
-		const allowed: ToolGateDecision = { allow: true };
+		const allowed: ToolGateDecision = { allow: true, ...(source ? { source } : {}) };
 		this.ctx.emit("piharness/tool-authorized", request, allowed);
 		return allowed;
 	}

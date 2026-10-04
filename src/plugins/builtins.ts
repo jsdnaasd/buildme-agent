@@ -152,6 +152,7 @@ const personalPrompt = definePlugin(
 	(ctx) =>
 		ctx.systemPrompt.register({
 			name: "persona:personal",
+			source: "persona",
 			order: 0,
 			text: ctx.settings.value.agent.systemPrompt,
 		}),

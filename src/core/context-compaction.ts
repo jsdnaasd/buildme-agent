@@ -1,5 +1,6 @@
 import { estimateTokens, serializeConversation, type AgentMessage, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Api, Message, Model, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import { traceAttempt } from "./trace-redact.js";
 
 /**
  * Keeps a Pi run inside the model's context window. It runs as Pi's
@@ -29,6 +30,7 @@ export interface ContextCompactorOptions {
 	readonly initial?: CompactionState | undefined;
 	/** Persists a new summary; awaited before the model call continues. */
 	readonly onCompacted?: (state: CompactionState & { readonly tokensBefore: number }) => Promise<void>;
+	readonly onClipped?: (clip: { toolCallId: string; charsBefore: number; charsAfter: number }) => void;
 	readonly contextWindow?: number;
 	readonly reserveTokens?: number;
 	readonly keepRecentTokens?: number;
@@ -78,7 +80,7 @@ function totalTokens(messages: readonly AgentMessage[]): number {
 	return messages.reduce((sum, message) => sum + estimateTokens(message), 0);
 }
 
-function clipToolResult(message: ToolResultMessage): ToolResultMessage {
+function clipToolResult(message: ToolResultMessage, onClipped: ContextCompactorOptions["onClipped"]): ToolResultMessage {
 	let changed = false;
 	const content = message.content.map((block) => {
 		if (block.type === "image") {
@@ -93,13 +95,19 @@ function clipToolResult(message: ToolResultMessage): ToolResultMessage {
 			text: `${block.text.slice(0, CLIP_HEAD_CHARS)}\n\n…[为节省上下文，已省略 ${omitted} 字符；需要时请重新读取原文]…\n\n${block.text.slice(-CLIP_TAIL_CHARS)}`,
 		};
 	});
-	return changed ? { ...message, content } : message;
+	if (!changed) return message;
+	traceAttempt(() => onClipped?.({
+		toolCallId: message.toolCallId,
+		charsBefore: message.content.reduce((sum, block) => sum + (block.type === "text" ? block.text.length : block.data.length), 0),
+		charsAfter: content.reduce((sum, block) => sum + block.text.length, 0),
+	}));
+	return { ...message, content };
 }
 
 /** Clip tool results in `messages[0, until)`; later messages are left intact. */
-function clipOlderToolResults(messages: readonly AgentMessage[], until: number): AgentMessage[] {
+function clipOlderToolResults(messages: readonly AgentMessage[], until: number, onClipped: ContextCompactorOptions["onClipped"]): AgentMessage[] {
 	return messages.map((message, index) =>
-		index < until && message.role === "toolResult" ? clipToolResult(message as ToolResultMessage) : message,
+		index < until && message.role === "toolResult" ? clipToolResult(message as ToolResultMessage, onClipped) : message,
 	);
 }
 
@@ -176,7 +184,7 @@ export class ContextCompactor {
 		const summary = covered > 0 ? this.state!.summary : undefined;
 		const live = messages.slice(covered);
 
-		const clipped = clipOlderToolResults(live, recentWindowStart(live, this.keepRecentTokens));
+		const clipped = clipOlderToolResults(live, recentWindowStart(live, this.keepRecentTokens), this.options.onClipped);
 		const assembled = summary === undefined ? clipped : withSummary(summary, clipped);
 		const tokensBefore = totalTokens(assembled);
 		if (tokensBefore <= this.budget) return assembled;
@@ -204,7 +212,7 @@ export class ContextCompactor {
 
 	/** Last resort: clip every tool result except the most recent message. */
 	private clipEverything(messages: AgentMessage[]): AgentMessage[] {
-		return clipOlderToolResults(messages, messages.length - 1);
+		return clipOlderToolResults(messages, messages.length - 1, this.options.onClipped);
 	}
 
 	private async summarize(messages: readonly AgentMessage[], previousSummary: string | undefined, signal?: AbortSignal): Promise<string> {

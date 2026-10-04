@@ -60,7 +60,7 @@ const selectors = [
   "#new-chat", "#new-connection", "#open-sidebar", "#permission-chip", "#permission-label", "#permission-menu", "#plugin-market", "#plugin-market-dialog", "#close-plugin-market",
   "#open-pi-community-popular", "#open-pi-community-github", "#open-pi-community-reddit",
   "#prompt", "#provider", "#refresh-sessions", "#send", "#session-list", "#settings", "#settings-dialog",
-  "#settings-form", "#sidebar-backdrop", "#status", "#workspace-chip",
+  "#record-raw-requests", "#settings-form", "#sidebar-backdrop", "#status", "#workspace-chip",
   "#workspace-label", ".connection-dot",
 ];
 

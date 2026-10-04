@@ -149,6 +149,12 @@
           </div>
         </section>
 
+        <section class="settings-section" aria-labelledby="xray-settings-title">
+          <h3 id="xray-settings-title">X 光记录</h3>
+          <label class="trace-setting"><input id="record-raw-requests" type="checkbox" checked>记录发给模型的原始请求</label>
+          <p class="privacy-note">仅保存在本机，敏感信息会隐藏。切换立即保存，从下一回合生效；关闭后仍记录调用统计。</p>
+        </section>
+
         <footer class="dialog-actions"><button id="cancel-settings" class="secondary-button" type="button">取消</button><button class="primary-button" type="submit">保存连接</button></footer>
       </form>
     </dialog>

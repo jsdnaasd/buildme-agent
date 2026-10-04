@@ -100,6 +100,7 @@ export class AgentRegistry extends Service {
 	}
 
 	async run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		options.signal?.throwIfAborted();
 		const { sessionId, ...runOptions } = options;
 		const handle = sessionId !== undefined
 			? await this.resume({ resumeSessionId: sessionId })

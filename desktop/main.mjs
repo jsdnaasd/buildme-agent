@@ -7,6 +7,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Noti
 
 import { applyProxyFromEnv, createApp, hasProxyEnv, initProfile, loadProfile, proxyUrlFromPac } from "../dist/index.js";
 import { ACTIVE_API_KEY_ENV, DshEngine, dshRoute, fullEditionPrompt } from "./dsh-engine.mjs";
+import { TraceStore, redactTrace } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_NAME = "BuildMe";
@@ -76,6 +77,8 @@ let harnessApp;
 let harnessPromise;
 let stopStream;
 let stopApprovals;
+let stopTrace;
+let traceStore;
 let quitting = false;
 let profilePathPromise;
 const pendingApprovals = new Map();
@@ -90,6 +93,11 @@ const scheduleResumedEngines = new WeakSet();
 
 function appDataPath(name) {
   return join(app.getPath("userData"), name);
+}
+
+function getTraceStore() {
+  traceStore ??= new TraceStore(appDataPath("traces"));
+  return traceStore;
 }
 
 async function migrateLegacyUserData() {
@@ -202,6 +210,7 @@ function normalizeConfig(value) {
     permissionMode: PERMISSION_MODES.has(source.permissionMode) ? source.permissionMode : "ask",
     theme: THEMES.has(source.theme) ? source.theme : "system",
     edition: EDITIONS.has(source.edition) ? source.edition : "standard",
+    recordRawRequests: source.recordRawRequests !== false,
   };
 }
 
@@ -546,6 +555,15 @@ function ensureHarness() {
       }
     });
     stopApprovals = runtime.ctx.on("piharness/tool-approval-request", requestToolApproval);
+    stopTrace = runtime.ctx.on("piharness/trace", (notification) => {
+      try {
+        const safe = redactTrace(notification);
+        void getTraceStore().accept(safe);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
+      } catch {
+        console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
+      }
+    });
     harnessApp = runtime;
     return runtime;
   })().catch((error) => {
@@ -697,6 +715,7 @@ async function desktopState() {
     permissionMode: config.permissionMode,
     theme: config.theme,
     edition: config.edition,
+    recordRawRequests: config.recordRawRequests,
     fullTools: config.edition === "full" && dshEngine?.running
       ? await dshEngine.request("tools/list").then((tools) => tools.map((tool) => tool.name), () => [])
       : [],
@@ -853,6 +872,16 @@ ipcMain.handle("desktop:messages", async (_event, sessionId) => {
   }
   return sessionMessages(id);
 });
+ipcMain.handle("desktop:xray-turns", async (_event, sessionId) => {
+  const config = await getConfig();
+  return getTraceStore().turns(config.edition === "full" ? "dsh" : "pi", requireSessionId(sessionId));
+});
+ipcMain.handle("desktop:xray-turn", (_event, turnId) => getTraceStore().turn(requireSessionId(turnId)));
+ipcMain.handle("desktop:set-record-raw-requests", async (_event, enabled) => {
+  if (typeof enabled !== "boolean") throw new Error("原始请求记录选项不正确。");
+  await saveConfig({ ...await getConfig(), recordRawRequests: enabled });
+  return enabled;
+});
 ipcMain.handle("desktop:send", async (_event, payload) => {
   const prompt = parsePrompt(payload?.prompt);
   const requestedSession = parseSessionId(payload?.sessionId);
@@ -866,19 +895,24 @@ ipcMain.handle("desktop:send", async (_event, payload) => {
   const knownProvider = typeof llm.catalog === "function"
     && llm.catalog().some((provider) => provider.id === selected.provider);
   if (!knownProvider && !selected.baseUrl) throw new Error("未知 Provider 需要配置 Base URL。");
-  return agents.run(prompt, {
-    ...(requestedSession ? { sessionId: requestedSession } : {}),
-    connection: {
-      provider: selected.provider,
-      model: selected.model,
-      ...(apiKey ? { apiKey } : {}),
-      ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}),
-    },
-    ...(config.workspacePath ? { workspacePath: config.workspacePath } : {}),
-    permissionMode: config.permissionMode,
-    // Build mode always runs with every BuildMe tool (documents, web, skills, plans, delegation).
-    edition: "full",
-  });
+  try {
+    return await agents.run(prompt, {
+      ...(requestedSession ? { sessionId: requestedSession } : {}),
+      connection: {
+        provider: selected.provider,
+        model: selected.model,
+        ...(apiKey ? { apiKey } : {}),
+        ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}),
+      },
+      ...(config.workspacePath ? { workspacePath: config.workspacePath } : {}),
+      permissionMode: config.permissionMode,
+      // Build mode always runs with every BuildMe tool (documents, web, skills, plans, delegation).
+      edition: "full",
+      recordRawRequests: config.recordRawRequests,
+    });
+  } finally {
+    await traceStore?.flush();
+  }
 });
 ipcMain.handle("desktop:abort", async (_event, sessionId) => {
   const requestedSession = parseSessionId(sessionId);
@@ -1002,6 +1036,8 @@ app.on("before-quit", (event) => {
   Promise.allSettled([stopStream, stopApprovals].map((stop) => Promise.resolve().then(() => stop?.())))
     .then(async () => {
       await Promise.allSettled([(harnessApp ?? await pendingHarness)?.stop(), stopDshEngine()]);
+      stopTrace?.();
+      await traceStore?.flush();
     })
     .catch((error) => console.error(`Agent 退出清理失败：${error instanceof Error ? error.message : String(error)}`))
     .finally(() => app.quit());

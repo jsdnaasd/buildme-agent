@@ -5,6 +5,14 @@ contextBridge.exposeInMainWorld("personalAgent", {
   catalog: () => ipcRenderer.invoke("desktop:catalog"),
   sessions: () => ipcRenderer.invoke("desktop:sessions"),
   messages: (sessionId) => ipcRenderer.invoke("desktop:messages", sessionId),
+  xrayTurns: (sessionId) => ipcRenderer.invoke("desktop:xray-turns", sessionId),
+  xrayTurn: (turnId) => ipcRenderer.invoke("desktop:xray-turn", turnId),
+  setRecordRawRequests: (enabled) => ipcRenderer.invoke("desktop:set-record-raw-requests", enabled),
+  onXray: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("desktop:xray", handler);
+    return () => ipcRenderer.removeListener("desktop:xray", handler);
+  },
   send: (payload) => ipcRenderer.invoke("desktop:send", payload),
   abort: (sessionId) => ipcRenderer.invoke("desktop:abort", sessionId),
   saveKey: (key) => ipcRenderer.invoke("desktop:save-key", key),
