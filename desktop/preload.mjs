@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("personalAgent", {
   messages: (sessionId) => ipcRenderer.invoke("desktop:messages", sessionId),
   xrayTurns: (sessionId) => ipcRenderer.invoke("desktop:xray-turns", sessionId),
   xrayTurn: (turnId) => ipcRenderer.invoke("desktop:xray-turn", turnId),
+  xrayPromptSource: (turnId, segmentIndex, open) => ipcRenderer.invoke("desktop:xray-prompt-source", turnId, segmentIndex, open),
   setRecordRawRequests: (enabled) => ipcRenderer.invoke("desktop:set-record-raw-requests", enabled),
   onXray: (listener) => {
     const handler = (_event, payload) => listener(payload);
@@ -17,6 +18,7 @@ contextBridge.exposeInMainWorld("personalAgent", {
   abort: (sessionId) => ipcRenderer.invoke("desktop:abort", sessionId),
   saveKey: (key) => ipcRenderer.invoke("desktop:save-key", key),
   readClipboardText: () => ipcRenderer.invoke("desktop:read-clipboard-text"),
+  writeClipboardText: (text) => ipcRenderer.invoke("desktop:write-clipboard-text", text),
   openMarket: (market) => ipcRenderer.invoke("desktop:open-market", market),
   openFullEdition: () => ipcRenderer.invoke("desktop:open-full-edition"),
   setEdition: (edition) => ipcRenderer.invoke("desktop:set-edition", edition),

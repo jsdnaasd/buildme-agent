@@ -134,12 +134,13 @@ async function rendererFixture(overrides = {}) {
     querySelectorAll: (selector) => selector === "[data-permission]" ? permissionButtons : selector === "[data-theme-option]" ? themeButtons : [],
   };
   const media = { matches: true, addEventListener: vi.fn() };
+  const xray = { setSession: vi.fn(), bindHistory: vi.fn(), beginRun: vi.fn(), endRun: vi.fn() };
   const context = vm.createContext({
     console,
     document,
     Error,
     String,
-    window: { matchMedia: vi.fn(() => media), personalAgent: api },
+    window: { matchMedia: vi.fn(() => media), personalAgent: api, createXray: () => xray },
   });
   const source = await readFile(new URL("../desktop/renderer/renderer.js", import.meta.url), "utf8");
   vm.runInContext(source, context, { filename: "desktop/renderer/renderer.js" });
@@ -148,6 +149,7 @@ async function rendererFixture(overrides = {}) {
 
   return {
     api,
+    xray,
     approvalButtons: { allow: elements.get("#allow-approval"), deny: elements.get("#deny-approval") },
     completeSend: (result) => completeSend(result),
     document,
@@ -332,6 +334,7 @@ describe("Desktop renderer", () => {
     await vi.waitFor(() => expect(fixture.api.send).toHaveBeenCalledWith({ sessionId: undefined, prompt: "new question" }));
     expect(send.type).toBe("button");
     expect(send.textContent).toBe("■");
+    expect(fixture.xray.beginRun).toHaveBeenCalledWith(fixture.element("#messages").children.at(-1));
 
     fixture.emitStream({ type: "text", sessionId: "new-session", delta: "streamed answer" });
     expect(fixture.element("#messages").children.at(-1).textContent).toBe("streamed answer");
@@ -341,6 +344,7 @@ describe("Desktop renderer", () => {
     await submission;
     expect(send.type).toBe("submit");
     expect(send.textContent).toBe("↑");
+    expect(fixture.xray.endRun).toHaveBeenCalledOnce();
   });
 
   it("shows ask-mode tool approvals and returns the explicit decision", async () => {

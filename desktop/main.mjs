@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, safeStorage, session, shell } from "electron";
@@ -615,7 +615,9 @@ function messageText(message) {
 async function sessionMessages(sessionId) {
   const sessions = await requireRuntimeService("sessions");
   const events = await sessions.read(sessionId);
+  let turnIndex = 0;
   return events.flatMap((event) => {
+    if (event.type === "user/message") turnIndex += 1;
     if (event.type !== "user/message" && event.type !== "assistant/message" && event.type !== "tool/result") return [];
     const message = event.data && typeof event.data === "object" ? event.data.message : undefined;
     const text = messageText(message);
@@ -625,6 +627,7 @@ async function sessionMessages(sessionId) {
       role: event.type === "user/message" ? "user" : event.type === "assistant/message" ? "assistant" : "tool",
       text,
       at: event.at,
+      turnIndex,
     }];
   });
 }
@@ -877,6 +880,25 @@ ipcMain.handle("desktop:xray-turns", async (_event, sessionId) => {
   return getTraceStore().turns(config.edition === "full" ? "dsh" : "pi", requireSessionId(sessionId));
 });
 ipcMain.handle("desktop:xray-turn", (_event, turnId) => getTraceStore().turn(requireSessionId(turnId)));
+ipcMain.handle("desktop:xray-prompt-source", async (_event, turnId, segmentIndex, open) => {
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || typeof open !== "boolean") throw new Error("提示词来源参数不正确。");
+  const turn = await getTraceStore().turn(requireSessionId(turnId));
+  const source = turn?.promptSegments[segmentIndex]?.sourcePath;
+  if (!source) throw new Error("这段提示词没有记录来源路径。");
+  if (!isAbsolute(source) && !source.startsWith("bundles/")) throw new Error("相对路径缺少原始目录，请复制路径查找。");
+  const path = await realpath(isAbsolute(source) ? source : resolve(here, "..", source));
+  const bundles = await realpath(join(here, "..", "bundles"));
+  const withinBundles = relative(bundles, path);
+  const readOnly = withinBundles !== ".." && !withinBundles.startsWith(`..${sep}`) && !isAbsolute(withinBundles);
+  if (!isAbsolute(source) && !readOnly) throw new Error("来源路径不在内置提示词目录中。");
+  if (!(await stat(path)).isFile() || ![".md", ".txt", ".json", ".yaml", ".yml", ".toml"].includes(extname(path).toLowerCase())) throw new Error("仅支持打开提示词文本文件，请复制路径查找。");
+  if (open) {
+    if (readOnly) throw new Error("内置文件只提供路径复制。");
+    const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+  }
+  return { path, readOnly };
+});
 ipcMain.handle("desktop:set-record-raw-requests", async (_event, enabled) => {
   if (typeof enabled !== "boolean") throw new Error("原始请求记录选项不正确。");
   await saveConfig({ ...await getConfig(), recordRawRequests: enabled });
@@ -940,6 +962,10 @@ ipcMain.handle("desktop:approval-response", (_event, requestId, allow) => {
   return { accepted: settleApproval(id, allow) };
 });
 ipcMain.handle("desktop:read-clipboard-text", () => clipboard.readText());
+ipcMain.handle("desktop:write-clipboard-text", (_event, text) => {
+  if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 16 * 1024 * 1024) throw new Error("复制内容必须是 16 MiB 以内的文本。");
+  clipboard.writeText(text);
+});
 ipcMain.handle("desktop:open-full-edition", () => setEdition("full"));
 ipcMain.handle("desktop:open-market", async (_event, id) => {
   if (typeof id !== "string" || !(id in MARKET_URLS)) throw new Error("插件市场来源不正确。");

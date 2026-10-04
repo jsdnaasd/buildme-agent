@@ -81,6 +81,8 @@ let cancelRequested = false;
 let streamingNode;
 let currentApproval;
 const approvalQueue = [];
+const xray = window.createXray(api);
+let sessionSelection = 0;
 
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
@@ -140,7 +142,7 @@ function resetWelcome() {
 function displayMessages(items) {
   elements.messages.replaceChildren();
   if (!items.length) return resetWelcome();
-  for (const item of items) appendMessage(item.role, item.text);
+  xray.bindHistory(items.map((item) => ({ ...item, node: appendMessage(item.role, item.text) })));
 }
 
 function formatDate(value) {
@@ -202,10 +204,14 @@ async function refreshSessions() {
 
 async function selectSession(sessionId, title = "会话") {
   if (isRunning) return;
+  const selection = ++sessionSelection;
   try {
     selectedSession = sessionId;
     elements.chatTitle.textContent = title;
-    displayMessages(await api.messages(sessionId));
+    void xray.setSession(sessionId, appState.edition);
+    const items = await api.messages(sessionId);
+    if (selection !== sessionSelection) return;
+    displayMessages(items);
     await refreshSessions();
     closeSidebar();
   } catch (error) {
@@ -215,7 +221,9 @@ async function selectSession(sessionId, title = "会话") {
 
 function startNewChat() {
   if (isRunning) return;
+  sessionSelection += 1;
   selectedSession = undefined;
+  void xray.setSession(undefined, appState.edition);
   elements.chatTitle.textContent = "新对话";
   resetWelcome();
   void refreshSessions();
@@ -589,6 +597,7 @@ elements.composer.addEventListener("submit", async (event) => {
   elements.prompt.value = "";
   autoSizePrompt();
   streamingNode = appendMessage("assistant", "", { streaming: true });
+  xray.beginRun(streamingNode);
   syncRunning(true);
   try {
     const result = await api.send({ sessionId: requestedSession, prompt: text });
@@ -602,6 +611,7 @@ elements.composer.addEventListener("submit", async (event) => {
     streamingNode.classList.remove("streaming");
     if (!cancelRequested) streamingNode.classList.add("error");
   } finally {
+    xray.endRun();
     activeSession = undefined;
     streamingNode = undefined;
     syncRunning(false);
@@ -629,6 +639,7 @@ elements.permissionChip.addEventListener("click", () => elements.permissionMenu.
 for (const button of $$('[data-permission]')) button.addEventListener("click", () => void selectPermission(button.dataset.permission));
 for (const selector of ["#settings", "#header-settings", "#model-chip"]) $(selector).addEventListener("click", openSettings);
 elements.fullEdition.addEventListener("click", async () => {
+  if (isRunning) return;
   elements.fullEdition.disabled = true;
   try {
     const next = appState.edition === "full" ? "standard" : "full";
@@ -638,6 +649,7 @@ elements.fullEdition.addEventListener("click", async () => {
       : await api.openFullEdition();
     mergeState(result);
     syncEdition();
+    startNewChat();
     setStatus(next === "full" ? "已切换到全量版（DSH 引擎）" : "已切回 Build 模式");
   } catch (error) {
     setStatus(errorText(error), "error");
@@ -778,7 +790,7 @@ api.onStream((event) => {
     void refreshSessions();
     if (event.type === "open-session" && !isRunning) void selectSession(event.sessionId);
     else if (!isRunning && event.sessionId === selectedSession) {
-      void api.messages(event.sessionId).then(displayMessages, () => undefined);
+      void selectSession(event.sessionId);
       setStatus("定时任务有新的回复");
     }
     return;
@@ -800,6 +812,7 @@ if (typeof api.onApproval === "function" && typeof api.respondApproval === "func
 (async () => {
   try {
     mergeState(await api.state());
+    void xray.setSession(undefined, appState.edition);
     $("#agent-name").textContent = "BuildMe";
     applyTheme(appState.theme);
     syncWorkspace();

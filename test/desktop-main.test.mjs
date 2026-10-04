@@ -21,8 +21,8 @@ const runtimeListeners = new Map();
 const windows = [];
 const nativeTheme = { themeSource: "system" };
 const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) };
-const clipboard = { readText: vi.fn(() => "clipboard-key") };
-const shell = { openExternal: vi.fn(async () => "") };
+const clipboard = { readText: vi.fn(() => "clipboard-key"), writeText: vi.fn() };
+const shell = { openExternal: vi.fn(async () => ""), openPath: vi.fn(async () => "") };
 const safeStorage = {
   isEncryptionAvailable: vi.fn(() => true),
   encryptString: vi.fn((value) => Buffer.from([...value].reverse().join(""), "utf8")),
@@ -402,6 +402,55 @@ describe("Desktop main-process state", () => {
     expect(history.status).toBe("done");
     expect(JSON.stringify(history)).not.toContain("sk-test-AAAAAAAAAAAAAAAAAAAA");
     expect(JSON.stringify(windows[0].webContents.send.mock.calls.filter(([channel]) => channel === "desktop:xray"))).not.toContain("sk-test-AAAAAAAAAAAAAAAAAAAA");
+  });
+
+  it("keeps durable turn indices across filtered messages and intermediate assistant replies", async () => {
+    runtime.ctx.sessions.read.mockResolvedValueOnce([
+      { type: "user/message", data: { message: { role: "user", content: "" } } },
+      { type: "assistant/message", data: { message: { role: "assistant", content: [{ type: "text", text: "old reply" }] } } },
+      { type: "user/message", data: { message: { role: "user", content: "next" } } },
+      { type: "assistant/message", data: { message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] } } },
+      { type: "assistant/message", data: { message: { role: "assistant", content: [{ type: "text", text: "final" }] } } },
+    ]);
+    const messages = await ipcHandlers.get("desktop:messages")(undefined, "history");
+    expect(messages.map(({ text, turnIndex }) => ({ text, turnIndex }))).toEqual([
+      { text: "old reply", turnIndex: 1 }, { text: "next", turnIndex: 2 },
+      { text: "正在使用：read", turnIndex: 2 }, { text: "final", turnIndex: 2 },
+    ]);
+  });
+
+  it("opens only recorded text sources and keeps bundled prompt sources read-only", async () => {
+    const path = join(canonicalWorkspace, "guide.md");
+    const executable = join(canonicalWorkspace, "run.sh");
+    writeFileSync(path, "guide"); writeFileSync(executable, "exit 0");
+    const sourceTurn = {
+      id: "source-turn", sessionId: "sources", turnIndex: 1, engine: "pi", status: "running",
+      startedAt: "2026-10-05T00:00:00Z", userPrompt: "test", model: { provider: "faux", id: "faux" },
+      promptSegments: [path, "bundles/base/prompts/buildme-tools-dsh.md", executable, "missing-relative.md"].map((sourcePath, index) => ({ name: `section-${index}`, source: "base", sourcePath, text: "test", chars: 4, estTokens: 1 })),
+      events: [], fidelity: { promptSegments: true, rawRequest: true, usage: "exact", approvals: true, subagents: true, compaction: true },
+      usage: { inputTokens: 0, outputTokens: 0, modelCalls: 0, toolCalls: 0, durationMs: 0 },
+    };
+    runtimeListeners.get("piharness/trace")({ type: "turn-start", turn: sourceTurn });
+    const source = ipcHandlers.get("desktop:xray-prompt-source");
+    await expect(source(undefined, "source-turn", 0, false)).resolves.toEqual({ path, readOnly: false });
+    expect(shell.openPath).not.toHaveBeenCalled();
+    await source(undefined, "source-turn", 0, true);
+    expect(shell.openPath).toHaveBeenCalledWith(path);
+    await expect(source(undefined, "source-turn", 1, false)).resolves.toMatchObject({ readOnly: true });
+    await expect(source(undefined, "source-turn", 1, true)).rejects.toThrow("内置文件");
+    await expect(source(undefined, "source-turn", 2, true)).rejects.toThrow("文本文件");
+    await expect(source(undefined, "source-turn", 3, true)).rejects.toThrow("相对路径");
+    await expect(source(undefined, "source-turn", "0", true)).rejects.toThrow("参数");
+    await expect(source(undefined, "unknown", 0, true)).rejects.toThrow("没有记录");
+    shell.openPath.mockResolvedValueOnce("no editor");
+    await expect(source(undefined, "source-turn", 0, true)).rejects.toThrow("no editor");
+  });
+
+  it("copies text through the desktop bridge and rejects non-text clipboard input", () => {
+    const copy = ipcHandlers.get("desktop:write-clipboard-text");
+    copy(undefined, '{"apiKey":"«已隐藏»"}');
+    expect(clipboard.writeText).toHaveBeenCalledWith('{"apiKey":"«已隐藏»"}');
+    expect(() => copy(undefined, {})).toThrow("复制内容");
   });
 
   it("allows the final model connection to be removed", async () => {

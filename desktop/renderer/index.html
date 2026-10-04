@@ -54,6 +54,7 @@
             <span id="status" class="status" role="status" aria-live="polite"></span>
           </div>
           <div class="header-actions">
+            <button id="xray-toggle" class="xray-toggle" type="button" aria-controls="xray-panel" aria-expanded="false" title="X 光（⌘/Ctrl + Shift + X）">◎ X 光</button>
             <button id="full-edition" class="edition-switch" type="button" title="切换 Build 模式（轻量）/ 全量版（DSH 引擎）">Build 模式 · 轻量</button>
             <button id="header-settings" class="header-action" type="button">设置</button>
           </div>
@@ -101,6 +102,32 @@
           <p id="composer-hint" class="composer-hint">Enter 发送 · Shift + Enter 换行</p>
         </footer>
       </section>
+      <button id="xray-backdrop" class="xray-backdrop" type="button" tabindex="-1" aria-label="关闭 X 光" hidden></button>
+      <aside id="xray-panel" class="xray-panel" aria-labelledby="xray-title" hidden>
+        <div id="xray-resize" class="xray-resize" role="separator" tabindex="0" aria-label="调整 X 光宽度" aria-orientation="vertical" aria-valuemin="320" aria-valuemax="720" aria-valuenow="420"></div>
+        <header class="xray-header">
+          <div><span class="xray-eyebrow">BUILDME / INSPECT</span><h2 id="xray-title">X 光 <span>看见每一步</span></h2></div>
+          <button id="xray-close" class="icon-button" type="button" aria-label="关闭 X 光">×</button>
+        </header>
+        <div class="xray-controls">
+          <label class="sr-only" for="xray-turn">选择回合</label><select id="xray-turn"></select>
+          <button id="xray-follow" type="button" aria-pressed="true">跟随最新</button>
+          <div class="xray-mode" aria-label="阅读模式"><button id="xray-beginner" type="button" aria-pressed="true">新手</button><button id="xray-advanced" type="button" aria-pressed="false">进阶</button></div>
+        </div>
+        <div id="xray-overview" class="xray-overview"></div>
+        <div id="xray-tabs" class="xray-tabs" role="tablist" aria-label="X 光视图">
+          <button id="xray-tab-timeline" type="button" role="tab" aria-selected="true" aria-controls="xray-timeline" data-xray-tab="timeline">时间线</button>
+          <button id="xray-tab-prompt" type="button" role="tab" aria-selected="false" aria-controls="xray-prompt" data-xray-tab="prompt" tabindex="-1">提示词</button>
+          <button id="xray-tab-context" type="button" role="tab" aria-selected="false" aria-controls="xray-context" data-xray-tab="context" tabindex="-1">上下文</button>
+          <button id="xray-tab-raw" type="button" role="tab" aria-selected="false" aria-controls="xray-raw" data-xray-tab="raw" tabindex="-1" hidden>原始请求</button>
+        </div>
+        <div class="xray-section-label"><strong id="xray-view-title">执行时间线</strong><span id="xray-event-count"></span></div>
+        <div id="xray-timeline" class="xray-timeline" tabindex="0" role="tabpanel" aria-labelledby="xray-tab-timeline"></div>
+        <div id="xray-prompt" class="xray-inspect" tabindex="0" role="tabpanel" aria-labelledby="xray-tab-prompt" hidden></div>
+        <div id="xray-context" class="xray-inspect" tabindex="0" role="tabpanel" aria-labelledby="xray-tab-context" hidden></div>
+        <div id="xray-raw" class="xray-inspect" tabindex="0" role="tabpanel" aria-labelledby="xray-tab-raw" hidden></div>
+        <footer class="xray-footer">本回合统计仅含当前 Agent，子任务单独统计。</footer>
+      </aside>
     </main>
 
     <dialog id="settings-dialog" aria-labelledby="settings-title">
@@ -181,6 +208,10 @@
       </section>
     </dialog>
 
+    <script src="./knowledge.js"></script>
+    <script src="./xray-help.js"></script>
+    <script src="./xray-inspect.js"></script>
+    <script src="./xray.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>
