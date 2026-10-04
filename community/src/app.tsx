@@ -1,0 +1,30 @@
+import { Hono } from 'hono';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { compress } from 'hono/compress';
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import type { Config } from './config.js';
+import type { Db } from './db/index.js';
+import { Layout, Empty } from './views/layout.js';
+export function createApp(config:Config,db:Db) {
+  const app=new Hono();
+  app.use('*',compress());
+  app.use('*',async(c,next)=>{
+    const images=config.storageDriver==='oss'?` ${new URL(config.ossPublicUrl).origin}`:'';
+    c.header('Content-Security-Policy',`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'${images}; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
+    c.header('X-Content-Type-Options','nosniff'); c.header('Referrer-Policy','strict-origin-when-cross-origin'); c.header('Cache-Control','no-store');
+    const theme=c.req.query('theme'); const embed=c.req.query('embed');
+    if(theme==='system')deleteCookie(c,'theme',{path:'/'});
+    if(theme==='dark'||theme==='light')setCookie(c,'theme',theme,{path:'/',httpOnly:true,sameSite:'Lax',secure:true,maxAge:31536000});
+    if(embed==='1'||embed==='0')setCookie(c,'embed',embed,{path:'/',httpOnly:true,sameSite:'Lax',secure:true,maxAge:31536000});
+    await next();
+  });
+  app.use('/assets/*',async(c,next)=>{c.header('Cache-Control',/\.[a-f0-9]{12}\./.test(c.req.path)?'public, max-age=31536000, immutable':'public, max-age=3600');await next();});
+  app.use('/assets/*',serveStatic({root:'./public',rewriteRequestPath:p=>p.replace('/assets/','/').replace(/\.[a-f0-9]{12}(?=\.)/,'')}));
+  app.use('/fonts/*',serveStatic({root:'./public'}));
+  app.get('/healthz',c=>{db.prepare('UPDATE health_probe SET checked_at=? WHERE id=1').run(Date.now());db.prepare('SELECT checked_at FROM health_probe').get();return c.json({status:'ok',database:'read-write'});});
+  app.get('/',c=>c.redirect('/latest'));
+  app.get('/latest',c=>c.html(<Layout title="最新" path="/latest" theme={(c.req.query('theme')??getCookie(c,'theme'))==='system'?undefined:(c.req.query('theme')??getCookie(c,'theme'))} embed={(c.req.query('embed')??getCookie(c,'embed'))==='1'}><div class="page-heading"><div><p class="eyebrow">BUILD TOGETHER</p><h1>每一次动手，都值得分享。</h1><p class="muted">好的链接、踩过的坑，还有你的下一次灵感。</p></div></div><div class="layout"><section class="feed"><Empty title="从第一个发现开始">社区已经准备好，账号与发帖将在接下来的里程碑开放。</Empty></section><aside class="sidebar"><section class="panel"><h2>在这里聊什么</h2><p>分享 · 文章 · 问答 · 闲聊</p><p class="muted">关于 Agent，也关于你动手做出的每一点进步。</p></section></aside></div></Layout>));
+  app.get('/about',c=>c.html(<Layout title="关于与规则"><section class="panel prose"><h1>关于 BuildMe 社区</h1><p>一个分享 Agent 学习与实践的地方。</p><h2>社区规则（待负责人完善）</h2><p>尊重他人，分享可复现的经验，不发布广告或他人的隐私。联系方式由负责人上线前补充。</p></section></Layout>));
+  app.onError((_error,c)=>{console.error(JSON.stringify({level:'error',event:'request_failed',path:c.req.path}));return c.text('服务暂时不可用，请稍后再试。',500);});
+  return app;
+}
