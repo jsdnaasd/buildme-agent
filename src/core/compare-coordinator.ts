@@ -105,7 +105,7 @@ export class CompareCoordinator {
 
 	async remove(id: string): Promise<void> {
 		await this.stop(id); const group = await this.get(id);
-		await this.workspaces.expire(id);
+		await this.workspaces.remove(id);
 		await import("node:fs/promises").then(({ rm }) => rm(join(this.root, `${group.id}.json`)));
 		this.groups.delete(id);
 	}

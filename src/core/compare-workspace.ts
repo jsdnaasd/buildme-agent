@@ -102,6 +102,7 @@ export class CompareWorkspace {
 		for (const part of ["baseline", "left", "right"]) await rm(join(this.group(id), part), { recursive: true, force: true });
 		snapshot.expired = true; await this.save(snapshot);
 	}
+	async remove(id: string): Promise<void> { await rm(this.group(id), { recursive: true, force: true }); }
 	async cleanup(now = Date.now()): Promise<string[]> {
 		await mkdir(this.root, { recursive: true }); const expired: string[] = [];
 		for (const entry of await readdir(this.root, { withFileTypes: true })) {

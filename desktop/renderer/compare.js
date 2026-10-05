@@ -42,7 +42,9 @@
       detail.hidden = false;
     }
     function render() {
-      const { group, metrics, differences } = data; content.replaceChildren(); $("#compare-changes").hidden = true;
+      const { group, metrics, differences } = data; content.replaceChildren();
+      $("#compare-summary").replaceChildren();
+      if (group.rounds.length && !Object.values(group.rounds.at(-1).runs).some(run => run.status === "running")) window.addDeepExplanation?.($("#compare-summary"), { kind: "comparison", compareGroupId: group.id }, "让 BuildMe 总结两边的差别"); $("#compare-changes").hidden = true;
       $("#compare-new-form").hidden = true; $("#compare-send-form").hidden = false;
       $("#compare-delete").hidden = false; $("#compare-inspect").hidden = !group.rounds.length;
       status(group.workspace.expired ? "副本已过期，仅保留回答与差异记录。" : group.workspace.readOnly ? "工作区超过 300 MB：两侧强制只读，禁止写入和命令。" : "两侧使用独立工作区副本。采用改动前会核对真实文件。" );
@@ -111,16 +113,16 @@
       box.hidden = false; await api.compareXrayOpened(selected);
     }
     async function fresh() {
-      selected = undefined; data = undefined; generation++; content.replaceChildren(); $("#compare-new-form").hidden = false; $("#compare-send-form").hidden = true; $("#compare-delete").hidden = true; $("#compare-inspect").hidden = true; $("#compare-changes").hidden = true; $("#compare-timeline").hidden = true;
+      selected = undefined; data = undefined; generation++; $("#compare-summary").replaceChildren(); content.replaceChildren(); $("#compare-new-form").hidden = false; $("#compare-send-form").hidden = true; $("#compare-delete").hidden = true; $("#compare-inspect").hidden = true; $("#compare-changes").hidden = true; $("#compare-timeline").hidden = true;
       const state = await api.state();
       for (const side of ["left", "right"]) { const select = $(`#compare-${side}-connection`); select.replaceChildren(); for (const c of state.connections) { const option = node("option", `${c.name || c.provider} · ${c.model}`); option.value = c.id; select.append(option); } select.value = state.activeConnectionId; }
-      status("同模型下比较两种 harness 的表现。随机输出差异不能全部归因于 harness。"); await list();
+      status($("#compare-kind").value === "model" ? "相同 Pi 能力与工作区基线，比较明确选择的两个模型。单次结果不能代表普遍优劣。" : "同模型下比较两种 harness 的表现。随机输出差异不能全部归因于 harness。"); await list();
     }
     async function open() { dialog.showModal(); const groups = await list(); if (selected) await select(selected); else if (groups.length) await select(groups[0].id); else await fresh(); }
     $("#comparisons").onclick = () => void action(open);
     $("#compare-close").onclick = () => dialog.close();
     $("#compare-new").onclick = () => void action(fresh);
-    $("#compare-kind").onchange = () => { $("#compare-right-choice").hidden = $("#compare-kind").value !== "model"; };
+    $("#compare-kind").onchange = () => { $("#compare-right-choice").hidden = $("#compare-kind").value !== "model"; status($("#compare-kind").value === "model" ? "相同 Pi 能力与基线，比较两条明确选择的模型连接。" : "同模型下比较两种 harness 的表现。随机输出差异不能全部归因于 harness。"); };
     $("#compare-create").onclick = () => void action(async () => { const group = await api.compareCreate({ kind: $("#compare-kind").value, leftConnectionId: $("#compare-left-connection").value, rightConnectionId: $("#compare-right-connection").value, piAll: $("#compare-pi-all").checked }); await select(group.id); });
     $("#compare-send-form").onsubmit = (event) => { event.preventDefault(); void action(async () => { const text = $("#compare-prompt").value.trim(); if (!text) return; await api.compareSend(selected, text); $("#compare-prompt").value = ""; await select(selected); }); };
     $("#compare-stop").onclick = () => void action(async () => { await api.compareStop(selected); await select(selected); });

@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 const html = await readFile(new URL("../desktop/renderer/index.html", import.meta.url), "utf8");
 const source = await readFile(new URL("../desktop/renderer/xray.js", import.meta.url), "utf8");
 const inspectSource = await readFile(new URL("../desktop/renderer/xray-inspect.js", import.meta.url), "utf8");
-const knowledgeSource = await readFile(new URL("../desktop/renderer/knowledge.js", import.meta.url), "utf8");
+const knowledgeSource = await readFile(new URL("../desktop/renderer/knowledge.cjs", import.meta.url), "utf8");
 const helpSource = await readFile(new URL("../desktop/renderer/xray-help.js", import.meta.url), "utf8");
 const at = "2026-10-05T00:00:00.000Z";
 let eventIndex = 0;

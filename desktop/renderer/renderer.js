@@ -82,6 +82,7 @@ let streamingNode;
 let currentApproval;
 const approvalQueue = [];
 const xray = window.createXray(api);
+const explanations = window.createExplanations(api);
 let sessionSelection = 0;
 window.createAchievements(api, { onTurn: (turn) => xray.openTurn(turn) });
 const comparisons = window.createComparisons(api, { onTurn: (turn) => xray.openTurn(turn) });
@@ -109,6 +110,7 @@ function mergeState(result) {
   }
   appState = { ...appState, ...patch };
   capabilities.sync(appState);
+  explanations.sync(appState);
 }
 
 function activeConnection() {

@@ -67,3 +67,7 @@ M2 收尾逐条核对 C-1 至 C-10；必要时拆成更多轮，不为赶进度�
 4. 隔离 Electron 数据完成端到端，不访问真实模型 API、不删用户真实数据。macOS 和 Windows 独立验证；未实际运行的平台保留待验证。
 
 每个里程碑通过五项检查：`pnpm test`、`pnpm typecheck`、`pnpm test:typecheck`、`pnpm lint`、`pnpm build`，更新证据并提交本地 Git。社区、打包、发布、部署与推送不在范围内。
+
+## 2026-10-05 实施记录
+
+M2 / M3 / M4 / M5 功能批次已实现；逐条证据、检查命令、平台限制和真实性能样本见 [xray-progress.md](./xray-progress.md)。M4 提交 `43138b6`；M5 在通过五项检查和隔离 Electron 四阶段流程后独立提交。Windows 实机与每回合 5% 开销的尾部稳定性仍未通过完整验收，保留待验证/待优化状态。

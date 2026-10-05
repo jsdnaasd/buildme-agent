@@ -83,6 +83,19 @@ function ownUsage(turn: TraceTurn) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Pi 能力事件与父子回合", () => {
+	it("passes the immutable comparison policy to children and denies unconfined child tools", async () => {
+		const f = await fixture();
+		try {
+			const list = vi.spyOn(f.app.ctx.tools, "list");
+			const policy = { workspaceRoot: f.workspace.dir, readOnly: true };
+			await f.app.ctx.agents.run("delegate", { connection: { provider: "faux", model: "faux-1" }, workspacePath: f.workspace.dir, edition: "full", capabilities: ["core", "subagents"], comparePolicy: policy, compareGroupId: "group" });
+			const child = f.turns().find(turn => turn.parentTurnId)!;
+			expect(child.compareGroupId).toBe("group");
+			expect(child.events.filter(e => e.type === "tool.approval").map(e => e.decision)).toEqual(["policy-deny"]);
+			expect(list.mock.calls.filter(([scope]) => scope?.comparePolicy).length).toBeGreaterThanOrEqual(2);
+			for (const [scope] of list.mock.calls) if (scope?.comparePolicy) { expect(scope.comparePolicy).toEqual(policy); expect(Object.isFrozen(scope.comparePolicy)).toBe(true); }
+		} finally { await f.close(); }
+	});
 	it("inherits the parent snapshot into child tools while forbidding further delegation", async () => {
 		const f = await fixture();
 		try {

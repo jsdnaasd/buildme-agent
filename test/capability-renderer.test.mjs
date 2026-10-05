@@ -7,7 +7,7 @@ import { CAPABILITIES, ALL_CAPABILITIES, toggleCapability } from "../src/core/ca
 
 const html = await readFile(new URL("../desktop/renderer/index.html", import.meta.url), "utf8");
 const source = await readFile(new URL("../desktop/renderer/capabilities.js", import.meta.url), "utf8");
-const knowledge = await readFile(new URL("../desktop/renderer/knowledge.js", import.meta.url), "utf8");
+const knowledge = await readFile(new URL("../desktop/renderer/knowledge.cjs", import.meta.url), "utf8");
 function fixture() {
   const { window, document } = parseHTML(html);
   for (const dialog of document.querySelectorAll("dialog")) {

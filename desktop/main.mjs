@@ -1,4 +1,5 @@
 import { createCompareService } from "./compare.mjs";
+import { createExplanationService } from "./explanations.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -583,6 +584,20 @@ async function fullSend(prompt, requestedSession) {
 }
 
 let compareService;
+let explanationService;
+function getExplanations() {
+  return explanationService ??= createExplanationService({
+    root: appDataPath("explanations"), traceStore: getTraceStore, comparisons: getComparisons,
+    connection: async () => {
+      const selected = activeConnection(await getConfig());
+      if (!selected) throw new Error("请先在设置里添加并选择模型连接。");
+      const key = resolvedApiKey(selected), connection = { provider: selected.provider, model: selected.model, ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}), ...(key ? { apiKey: key } : {}) };
+      const llm = findRuntimeService(await ensureHarness(), "llm");
+      return { connection, resolved: llm.resolveConnection(connection) };
+    },
+    notify: (event) => sendToWindow("desktop:explanation", event), learning: recordLearning,
+  });
+}
 function getComparisons() {
   return compareService ??= createCompareService({
     root: appDataPath("comparisons"), applicationRoot: resolve(here, ".."), config: getConfig,
@@ -957,6 +972,16 @@ ipcMain.handle("desktop:messages", async (_event, sessionId) => {
   return sessionMessages(id);
 });
 ipcMain.handle("desktop:compare-list", () => getComparisons().list());
+ipcMain.handle("desktop:explain", (_event, requestId, target) => {
+  requestId = requireSessionId(requestId);
+  if (target?.kind === "comparison") getExplanations().start(requestId, { kind: "comparison", compareGroupId: requireSessionId(target.compareGroupId) });
+  else if (target?.kind === "event") {
+    if (target.segmentIndex !== undefined && (!Number.isSafeInteger(target.segmentIndex) || target.segmentIndex < 0)) throw new Error("提示词段序号不正确。");
+    if (target.eventId !== undefined && target.segmentIndex !== undefined) throw new Error("请选择一个事件或一段提示词。");
+    getExplanations().start(requestId, { kind: "event", turnId: requireSessionId(target.turnId), ...(target.eventId !== undefined ? { eventId: requireSessionId(target.eventId) } : {}), ...(target.segmentIndex !== undefined ? { segmentIndex: target.segmentIndex } : {}) });
+  } else throw new Error("未知的讲解类型。");
+});
+ipcMain.handle("desktop:explain-cancel", (_event, requestId) => explanationService?.cancel(requireSessionId(requestId)));
 ipcMain.handle("desktop:compare-create", (_event, payload) => getComparisons().create(payload));
 ipcMain.handle("desktop:compare-get", (_event, id) => getComparisons().details(requireSessionId(id)));
 ipcMain.handle("desktop:compare-send", (_event, id, prompt) => getComparisons().coordinator.send(requireSessionId(id), parsePrompt(prompt)));
@@ -1188,6 +1213,7 @@ app.on("before-quit", (event) => {
   const pendingHarness = harnessPromise;
   Promise.allSettled([stopStream, stopApprovals].map((stop) => Promise.resolve().then(() => stop?.())))
     .then(async () => {
+      await explanationService?.close();
       await compareService?.close();
       await Promise.allSettled([(harnessApp ?? await pendingHarness)?.stop(), stopDshEngine()]);
       stopTrace?.();

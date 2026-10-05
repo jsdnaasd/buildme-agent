@@ -1,6 +1,6 @@
 # X 光静态讲解来源
 
-核对日期：2026-10-05。文案位于 `desktop/renderer/knowledge.js`，渲染位于 `xray-help.js`。来源编号供维护者核对；应用打开卡片时只读本地数据，不访问这些网页。
+核对日期：2026-10-05。文案位于 `desktop/renderer/knowledge.cjs`，渲染位于 `xray-help.js`。来源编号供维护者核对；应用打开卡片时只读本地数据，不访问这些网页。
 
 ## 官方资料
 

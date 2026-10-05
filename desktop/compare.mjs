@@ -13,6 +13,7 @@ export function createCompareService({ root, applicationRoot, config, keyFor, ru
       const settings = group.sides[side], snapshot = settings.connection, current = await config();
       const saved = current.connections.find((c) => c.id === snapshot.id);
       if (!saved) throw new Error("此对比使用的模型连接已删除，请恢复该连接或新建对比。");
+      if (saved.provider !== snapshot.provider || saved.baseUrl !== snapshot.baseUrl) throw new Error("此连接的服务地址已变化，请新建对比，避免向旧地址发送新凭据。");
       const connection = { ...snapshot, ...(keyFor(saved) ? { apiKey: keyFor(saved) } : {}) };
       const workspace = workspaces.path(group.id, side);
       const source = `${side === "left" ? "左侧" : "右侧"} · ${settings.engine === "pi" ? "Pi" : "DSH"} · ${snapshot.model}`;

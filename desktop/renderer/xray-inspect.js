@@ -69,6 +69,7 @@
       bars.append(part);
       const card = node("details", `xray-segment xray-color-${index % 6}`);
       card.dataset.segmentName = segment.name;
+      card.dataset.segmentIndex = String(index);
       const heading = node("summary", "");
       const name = node("strong", "", segment.name), badge = node("span", "xray-diff-badge");
       const meta = node("span", "xray-segment-meta", `${SOURCES[segment.source]}${segment.capabilityId ? ` · ${segment.capabilityId}` : ""} · 约 ${number(segment.estTokens)} tokens · ${units[index] / 10}%`);
@@ -107,6 +108,8 @@
       }
       for (const segment of old.values()) {
         const card = textDetail(`${segment.name} · 本轮移除`, segment.text, "xray-removed");
+        card.dataset.turnId = before.id;
+        card.dataset.segmentIndex = String(before.promptSegments.indexOf(segment));
         card.append(window.XrayHelp("prompt.segment", segment.capabilityId));
         card.dataset.change = "removed";
         host.append(card); removed += 1;

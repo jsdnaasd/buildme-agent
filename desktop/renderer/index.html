@@ -248,13 +248,14 @@
         <button id="compare-create" class="primary-button" type="button">建立独立副本</button>
       </section>
       <div id="compare-content"></div>
-      <div id="compare-changes" hidden></div><div id="compare-timeline" hidden></div>
+      <div id="compare-changes" hidden></div><div id="compare-timeline" hidden></div><div id="compare-summary"></div>
       <footer><button id="compare-inspect" type="button" class="secondary-button" hidden>并列 X 光</button><button id="compare-delete" type="button" class="secondary-button" hidden>删除对比</button></footer>
       <form id="compare-send-form" hidden><label for="compare-prompt">两侧发送相同的问题</label><textarea id="compare-prompt" rows="3" placeholder="描述你想让两个 Agent 完成的任务…"></textarea><button id="compare-send" class="primary-button" type="submit">同时运行</button><button id="compare-stop" type="button" class="secondary-button" hidden>停止两侧</button></form>
     </dialog>
 
-    <script src="./knowledge.js"></script>
+    <script src="./knowledge.cjs"></script>
     <script src="./xray-help.js"></script>
+    <script src="./explanations.js"></script>
     <script src="./xray-inspect.js"></script>
     <script src="./xray.js"></script>
     <script src="./capabilities.js"></script>

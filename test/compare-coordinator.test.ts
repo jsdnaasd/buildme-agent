@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +28,9 @@ describe("comparison coordination", () => {
 		await restored.send(f.group.id, "two"); await restored.settle(f.group.id);
 		expect((await restored.get(f.group.id)).rounds).toHaveLength(2);
 		expect((await restored.get(f.group.id)).sides.left.connection).toEqual(f.group.sides.left.connection);
+		await restored.remove(f.group.id);
+		expect(await restored.list()).toEqual([]);
+		await expect(readFile(join(f.root, "workspaces", f.group.id, "snapshot.json"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 	it("retains a successful side when the other fails and does not report comparison completed", async () => {
 		const f = await setup({ run: async (_g, side) => { if (side === "right") throw new Error("fixture failure"); return { text: "success" }; } });

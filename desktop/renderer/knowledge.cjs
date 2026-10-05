@@ -161,5 +161,6 @@
       sources: [],
     },
   };
-  window.XrayKnowledge = { capabilities, topics };
+  if (typeof module === "object") module.exports = { capabilities, topics };
+  else window.XrayKnowledge = { capabilities, topics };
 })();

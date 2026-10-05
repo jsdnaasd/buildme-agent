@@ -42,6 +42,10 @@
         dismiss.addEventListener("click", close);
         body.append(dismiss);
         wrapper.append(body);
+        const turnId = wrapper.closest("[data-turn-id]")?.dataset.turnId;
+        const eventId = wrapper.closest("[data-event-id]")?.dataset.eventId;
+        const segment = wrapper.closest("[data-segment-index]")?.dataset.segmentIndex;
+        if (turnId) window.addDeepExplanation?.(body, { kind: "event", turnId, ...(eventId ? { eventId } : segment !== undefined ? { segmentIndex: Number(segment) } : {}) });
       }
       window.recordLearningEvent?.("explain-clicked", { turnId: wrapper.closest("[data-turn-id]")?.dataset.turnId });
       body.hidden = false;
