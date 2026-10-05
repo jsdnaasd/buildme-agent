@@ -6,6 +6,21 @@
 
 **M0 至 M5 的计划内功能已落地，macOS 自动化用户流程通过。** 两个引擎、能力、成就、隔离对比、深入讲解与模型对比已连接成可用流程。Windows 实机验证仍待完成；性能统计与已知边界见下文，不能将本机结果当作跨平台或所有负载的保证。
 
+## DeepSeek 真实请求验收（2026-10-05）
+
+已使用 BuildMe 保存的加密 DeepSeek Key，沿用当前模型 `deepseek-v4-flash-vision-exp`，向官方 API 发出真实请求。密钥仅在 Electron 主进程内解密并传给既有模型适配器，没有写入源码、验收记录或输出。使用临时工作区与会话目录，保存设置文件的前后 SHA-256 相同。
+
+| 验收 | 实际结果 |
+|---|---|
+| Pi Agent | 2 次模型调用、1 次 `read`，准确返回仅存在于临时 input.txt 的随机校验码；Trace 回合耗时 3410ms |
+| DSH Agent | 原生 `deepseek-official` 路由，2 次回合模型调用、1 次 `read`，准确返回相同校验码；Trace 回合耗时 3922ms，usage 标记 exact |
+| 深入讲解 | 对实际 Pi 工具事件发起真实请求，收到流式文字并成功结束；再次读取命中本地缓存，Agent 回合数保持 1 |
+| 数据保持 | 临时输入文件未修改；用户已保存连接设置哈希未变化；未读入用户聊天内容 |
+
+执行：独立临时 Electron 验收脚本 `/tmp/buildme-real-deepseek.cjs`，退出码 0；原始非敏感结果及讲解正文见 [真实调用证据](./xray-live-deepseek.json)。既有自动化仍使用假模型，本次没有修改生产代码或重跑已通过的完整测试。
+
+边界：以上验证了真实连通、核心读工具链路与讲解服务，不代表全部 M2–M5 功能均经真实模型验收，也未重新运行真实模型双路界面流程。DSH 回合计数不包含辅助标题请求，不能用表中次数推断全部计费请求数。讲解末尾将同一回合后续事件误称为“别的回合”，措辞不准确，实际生成内容仍需据 Trace 核对。Windows 实机与性能尾值限制保持不变。
+
 ## M5 交付与证据
 
 - `src/core/explanations.ts`、`desktop/explanations.mjs` 和 IPC 只接受回合/事件/提示词段或对比组标识，主进程读取脱敏记录。使用当前连接，无工具，事件预览最多 8 KiB，整个输入上限 16 KiB，输出最多 900 tokens。没有自动换模型，也没有新建 Agent 会话或回合。
@@ -28,7 +43,7 @@
 
 测试配置将桌面导入的 dist 模块映射到对应 src，避免单元测试依赖上一次编译产物。Electron 使用实际构建后的产物。截图验收曾在 X 光下一帧渲染前寻找按钮，现改为等待准确 turnId 和工具卡出现后操作。
 
-M5 五项检查：`pnpm test` **24 个文件、257 项通过**；`pnpm typecheck`、`pnpm test:typecheck`、`pnpm lint`、`pnpm build` 全部通过。Electron 四次隔离启动使用生产 main/preload/renderer、Pi 与实际 DSH 安装包；全部响应来自本地假模型，未调用真实模型 API。真实调用继续按用户要求使用已有 DeepSeek 连接/密钥，不写入源码或日志。没有新增依赖。
+M5 五项检查：`pnpm test` **24 个文件、257 项通过**；`pnpm typecheck`、`pnpm test:typecheck`、`pnpm lint`、`pnpm build` 全部通过。Electron 四次隔离启动使用生产 main/preload/renderer、Pi 与实际 DSH 安装包；全部响应来自本地假模型，未调用真实模型 API。后续手动真实调用已使用已有 DeepSeek 连接/密钥通过，见上方独立验收记录。没有新增依赖。
 
 ### 性能测量条件与限制
 
