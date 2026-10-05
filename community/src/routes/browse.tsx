@@ -108,7 +108,6 @@ export function browsing(app: Hono<Env>) {
     c.html(<TagsPage c={c} tags={tagCounts(c.get("db"))} />),
   );
   app.get("/search", (c) => {
-    limit(c.get("db"), "search", c.get("ipKey"), 30, 60000, c.get("now"));
     const options = searchOptions(c);
     return c.html(
       <SearchPage

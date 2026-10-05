@@ -8,6 +8,7 @@ import type { Env } from "./types.js";
 import { Layout, Empty } from "./views/layout.js";
 import { pageProps } from "./views/forms.js";
 import { createStorage, type Storage } from "./lib/storage.js";
+import { publicCache } from "./lib/public-cache.js";
 import { sessions } from "./lib/session.js";
 import { FormError } from "./lib/validation.js";
 import { GithubClient } from "./lib/github.js";
@@ -67,7 +68,7 @@ export function createApp(config: Config, db: Db, deps: Dependencies = {}) {
   app.use(
     "/fonts/*",
     async (c, next) => {
-      c.header("Cache-Control", "public, max-age=86400");
+      c.header("Cache-Control", "public, max-age=31536000, immutable");
       await next();
     },
     serveStatic({ root: "./public" }),
@@ -97,6 +98,7 @@ export function createApp(config: Config, db: Db, deps: Dependencies = {}) {
     }),
   );
   app.use("*", sessions);
+  app.use("*", publicCache());
   accounts(app, deps.github ?? new GithubClient(config), remote);
   administration(app);
   browsing(app);

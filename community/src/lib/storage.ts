@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import OSS from "ali-oss";
 import type { Config } from "../config.js";
@@ -19,7 +19,7 @@ export class LocalStorage implements Storage {
     return readFile(join(this.directory, key));
   }
   async remove(key: string) {
-    await unlink(join(this.directory, key));
+    await rm(join(this.directory, key), {force:true});
   }
   url(key: string) {
     return `/media/${key}`;

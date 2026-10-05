@@ -101,7 +101,7 @@
       icon.setAttribute('width', '18');
       icon.setAttribute('height', '18');
       const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-      use.setAttribute('href', '/assets/icons.svg#cube');
+      use.setAttribute('href', document.querySelector('.brand-mark use').getAttribute('href'));
       icon.append(use);
       brick.append(icon);
       const copy = node('div', 'achievement-copy');

@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'Schibsted Grotesk';
-  src: url('/fonts/schibsted-grotesk-latin-400-normal.woff2') format('woff2');
+  src: url('/fonts/schibsted-grotesk-latin-400-normal.437cd97c802b.woff2') format('woff2');
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -8,7 +8,7 @@
 
 @font-face {
   font-family: 'Schibsted Grotesk';
-  src: url('/fonts/schibsted-grotesk-latin-500-normal.woff2') format('woff2');
+  src: url('/fonts/schibsted-grotesk-latin-500-normal.83c497a1c028.woff2') format('woff2');
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -16,7 +16,7 @@
 
 @font-face {
   font-family: 'Schibsted Grotesk';
-  src: url('/fonts/schibsted-grotesk-latin-600-normal.woff2') format('woff2');
+  src: url('/fonts/schibsted-grotesk-latin-600-normal.d00ac8735bf6.woff2') format('woff2');
   font-style: normal;
   font-weight: 600;
   font-display: swap;
@@ -24,7 +24,7 @@
 
 @font-face {
   font-family: 'Schibsted Grotesk';
-  src: url('/fonts/schibsted-grotesk-latin-700-normal.woff2') format('woff2');
+  src: url('/fonts/schibsted-grotesk-latin-700-normal.d656a2dcc2bf.woff2') format('woff2');
   font-style: normal;
   font-weight: 700;
   font-display: swap;
@@ -32,7 +32,7 @@
 
 @font-face {
   font-family: 'JetBrains Mono';
-  src: url('/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  src: url('/fonts/jetbrains-mono-latin-400-normal.14425ba9c695.woff2') format('woff2');
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -40,7 +40,7 @@
 
 @font-face {
   font-family: 'JetBrains Mono';
-  src: url('/fonts/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+  src: url('/fonts/jetbrains-mono-latin-500-normal.cb182feeed4d.woff2') format('woff2');
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -48,7 +48,7 @@
 
 @font-face {
   font-family: 'JetBrains Mono';
-  src: url('/fonts/jetbrains-mono-latin-600-normal.woff2') format('woff2');
+  src: url('/fonts/jetbrains-mono-latin-600-normal.400c6bfda18d.woff2') format('woff2');
   font-style: normal;
   font-weight: 600;
   font-display: swap;
@@ -687,7 +687,7 @@ input[type='range'][data-floor-slider]:focus { outline: 2px solid var(--xray); o
 #search-suggestions a { display: block; padding: 10px; border-radius: 6px; color: var(--ink); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 #search-suggestions a:hover, #search-suggestions a[aria-selected='true'] { background: var(--hover); color: var(--brand); }
 .search-feedback { position: absolute; top: 100%; left: 0; z-index: 40; width: max(100%, 260px); margin: 7px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink2); font-size: 11px; box-shadow: var(--pop); }
-[data-mobile-menu] { display: none; }
+button[data-mobile-menu] { display: none; }
 .search-form { max-width: 960px; }
 .search-query-row { display: flex; align-items: stretch; gap: 10px; }
 .search-query-row > .field { flex: 1; }

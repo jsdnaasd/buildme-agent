@@ -5,6 +5,7 @@ test("B-8 即时搜索200毫秒防抖并支持斜线快捷键", async ({ page })
     if (r.url().includes("/search/suggest?")) searches.push(r.url());
   });
   await page.goto("/");
+  await expect(page.locator("[data-mobile-menu]")).toBeHidden();
   await page.keyboard.press("/");
   await expect(page.locator("[data-search-input]")).toBeFocused();
   await page

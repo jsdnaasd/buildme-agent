@@ -24,7 +24,7 @@ export interface PageProps {
 export function Icon({ name }: { name: string }) {
   return (
     <svg class="icon" width="18" height="18" aria-hidden="true">
-      <use href={`/assets/icons.svg#${name}`} />
+      <use href={`${asset("icons.svg")}#${name}`} />
     </svg>
   );
 }

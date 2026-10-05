@@ -3,7 +3,10 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023", "DOM"],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",
     "strict": true,
@@ -11,7 +14,15 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "scripts/**/*.ts",
+    "test/**/*.ts",
+    "deploy/**/*.ts"
+  ]
 }

@@ -15,7 +15,10 @@
     "test": "vitest run",
     "seed": "node --env-file-if-exists=.env --import tsx scripts/seed.ts",
     "create-admin": "node --env-file-if-exists=.env --import tsx scripts/create-admin.ts",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
+    "cleanup": "node --env-file-if-exists=.env --import tsx scripts/cleanup-images.ts",
+    "benchmark": "node --import tsx scripts/performance.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.0",

@@ -8,6 +8,8 @@ const html = await readFile(new URL("../desktop/renderer/index.html", import.met
 const source = await readFile(new URL("../desktop/renderer/achievements.js", import.meta.url), "utf8");
 function fixture(unlocks = []) {
   const { window, document } = parseHTML(html);
+  window.communityAvailable = () => true;
+  window.shareToCommunity = vi.fn(async () => undefined);
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
   const dialog = document.querySelector("#achievements-dialog"); dialog.showModal = () => { dialog.open = true; }; dialog.close = () => { dialog.open = false; };
   let notify;
@@ -29,6 +31,8 @@ describe("成就界面", () => {
     const f = fixture([{ id: "first-turn", at, turnId: "source" }, { id: "first-tool", at, turnId: "missing" }, { id: "xray-open", at }]);
     await f.page.open();
     expect(f.document.querySelectorAll(".achievement-card")).toHaveLength(30);
+    f.$('.achievement-item .secondary-button').click();
+    expect(f.window.shareToCommunity).toHaveBeenCalledWith('achievement','first-turn');
     expect(f.$("#achievement-count").textContent).toBe("已解锁 3 / 30");
     expect(f.$('[data-achievement="explain-20"]').textContent).toContain("???");
     f.$('[data-achievement="xray-open"]').click(); expect(f.$("#achievement-status").textContent).toContain("没有关联");
