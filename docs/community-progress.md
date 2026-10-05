@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-C0–C6 已完成，正在继续 C7–C8。本轮交付代码与部署说明，不推送、不执行线上部署。
+C0–C7 已完成，正在继续 C8。本轮交付代码与部署说明，不推送、不执行线上部署。
 
 ## 基线
 
@@ -69,3 +69,11 @@ C0–C6 已完成，正在继续 C7–C8。本轮交付代码与部署说明，�
 - 社区54项测试全部已有通过结果（M-1–M-10新增7项，修正测试夹具后定点通过），9项Chrome验收全部已有通过结果；管理表单手机390px检查通过。typecheck、lint、build通过。
 - 主仓库257项测试、typecheck、test:typecheck、lint、build通过。
 - 管理队列显示最近200条，帖子/用户搜索最多100条；作品与普通帖子跨类型转换需使用完整编辑器填写对应资料。
+
+## C7 已完成
+
+- 桌面端新增独立 WebContentsView、persist:community 分区、默认空网址配置、主题同步、离线提示/重试、加载条和标题未读数；没有 preload、Node 或 personalAgent。外链进入系统浏览器，GitHub仅从本站授权入口放行。
+- 对比摘要、成就提示和成就页可分享；主进程从本地记录中提取限定字段，经fragment发送；服务端严格校验后存储，列表/详情显示分享卡片。登录恢复及草稿已接通。
+- 社区57项测试、typecheck、lint、build通过；新增Chrome分享流程验收通过。
+- `node scripts/verify-community-policy.mjs`通过 I-4/I-7/I-9/I-10。Node22运行 `scripts/verify-community-electron.mjs`，真实Electron窗口两次启动通过 I-1/I-2/I-3/I-4/I-5/I-9/I-10：实际账号登录、重启保持、禁用桥接、外链拦截、主题、离线重试、未读归零。
+- 主仓库257项测试、typecheck、test:typecheck、lint、build通过。真实GitHub授权仍需负责人配置OAuth后人工验收；本地状态/回调桩测试已覆盖。

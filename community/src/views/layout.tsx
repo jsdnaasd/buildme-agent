@@ -53,6 +53,7 @@ export function Layout(p: PageProps) {
           <script src={asset("site.js")} defer />
           <script src={asset("browse.js")} defer />
           <script src={asset("interactions.js")} defer />
+          <script src={asset("share.js")} defer />
           {p.editor && <script src={asset("editor.js")} defer />}
           {p.editor && <script src={asset("works.js")} defer />}
         </head>

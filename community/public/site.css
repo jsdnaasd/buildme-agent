@@ -1045,3 +1045,65 @@ form[data-interaction='bookmark'].active button, .reaction-picker[open] > summar
   .admin-content .form-actions .button { font-size: 12px; }
   .report-form > .form { padding: 14px; }
 }
+
+/* C7 · App share cards */
+.share-card { min-width: 0; margin-block: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--raise); color: var(--ink); }
+.share-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.share-eyebrow { display: block; margin-bottom: 5px; color: var(--ink2); font-size: 11px; font-weight: 500; letter-spacing: .03em; }
+.share-card h3 { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.share-model { max-width: 48%; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink2); font: 11px/1.6 var(--mono); overflow-wrap: anywhere; }
+.share-token-chart { display: flex; flex-direction: column; gap: 16px; }
+.share-token-label { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; margin-bottom: 6px; font-size: 12px; }
+.share-token-label > span { font-weight: 600; }
+.share-token-label small { color: var(--ink2); font: 400 11px/1.6 var(--ui); }
+.share-token-label > span small { margin-left: 6px; }
+.share-token-label strong { font: 500 15px/1.5 var(--mono); }
+.share-card progress { display: block; width: 100%; height: 9px; overflow: hidden; border: 0; border-radius: 3px; appearance: none; background: var(--line-soft); }
+.share-card progress::-webkit-progress-bar { border-radius: 3px; background: var(--line-soft); }
+.share-card progress::-webkit-progress-value { border-radius: 3px; background: var(--brand); }
+.share-card progress::-moz-progress-bar { border-radius: 3px; background: var(--brand); }
+.share-token-row.is-dsh progress::-webkit-progress-value { background: var(--dsh); }
+.share-token-row.is-dsh progress::-moz-progress-bar { background: var(--dsh); }
+.share-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 20px 0 0; padding-top: 15px; border-top: 1px solid var(--line); }
+.share-metrics > div { min-width: 0; padding-inline: 14px; border-left: 1px solid var(--line); }
+.share-metrics > div:first-child { padding-left: 0; border: 0; }
+.share-metrics > div:last-child { padding-right: 0; }
+.share-metrics dt { margin-bottom: 5px; color: var(--ink2); font-size: 11px; }
+.share-metrics dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; margin: 0; font: 500 13px/1.6 var(--mono); }
+.share-metrics dd small { color: var(--ink2); font: 11px/1.6 var(--ui); }
+.share-metric-divider { color: var(--ink2); font-weight: 400; }
+.share-metric-key { margin: 8px 0 0; color: var(--ink2); font-size: 10px; }
+.share-capabilities { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 11px; }
+.share-capabilities > span { flex: none; color: var(--ink2); }
+.share-capabilities > div { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.share-capability { padding: 2px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--ink2); overflow-wrap: anywhere; }
+.achievement-share { display: flex; align-items: center; gap: 22px; padding: 25px; background: var(--brand-soft); }
+.achievement-brick { display: flex; flex: none; align-items: center; justify-content: center; width: 72px; height: 72px; border: 1px solid color-mix(in srgb, var(--brand) 25%, var(--line)); border-radius: 16px; background: var(--panel); color: var(--brand-text); transform: rotate(-6deg); }
+.achievement-brick .icon { width: 39px; height: 39px; }
+.achievement-copy { flex: 1; min-width: 0; }
+.achievement-copy h3 { color: var(--ink); font-size: 21px; }
+.achievement-copy p { margin: 10px 0; color: var(--ink2); font-size: 12px; }
+.achievement-copy strong { color: var(--ink); font: 600 18px/1.5 var(--mono); }
+.achievement-copy strong span { color: var(--ink2); font-size: 13px; font-weight: 400; }
+.achievement-share .achievement-progress { max-width: 240px; height: 5px; }
+.share-editor-preview { min-width: 0; }
+.share-editor-preview .share-card { margin-block: 0 10px; }
+.share-editor-notice { margin-bottom: 16px; font-size: 13px; }
+.share-editor-actions { display: flex; justify-content: flex-end; }
+.share-editor-actions .button { min-height: 32px; padding: 5px 10px; font-size: 11px; }
+.post-card .share-card { margin-bottom: 12px; }
+@media (width <= 480px) {
+  .share-card { padding: 16px; }
+  .share-card-heading { gap: 10px; }
+  .share-card h3 { font-size: 15px; }
+  .share-model { font-size: 10px; }
+  .share-token-label strong { font-size: 14px; }
+  .share-token-label > span small { display: block; margin-left: 0; }
+  .share-metrics > div { padding-inline: 9px; }
+  .share-metrics dd { gap: 3px; font-size: 12px; }
+  .share-capabilities { flex-direction: column; gap: 7px; }
+  .achievement-share { gap: 15px; padding-block: 20px; }
+  .achievement-brick { width: 56px; height: 56px; border-radius: 13px; }
+  .achievement-brick .icon { width: 32px; height: 32px; }
+  .achievement-copy h3 { font-size: 18px; }
+}

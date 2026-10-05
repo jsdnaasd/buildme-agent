@@ -70,7 +70,7 @@ if (editorForm) {
           field.name &&
           !["csrf", "image"].includes(field.name) &&
           !["file", "submit", "button"].includes(field.type) &&
-          (field.type !== "hidden" || field.name === "coverId"),
+          (field.type !== "hidden" || ["coverId","shareData"].includes(field.name)),
       )
       .map((field) => ({
         name: field.name,

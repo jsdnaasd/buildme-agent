@@ -34,6 +34,7 @@
         </section>
 
         <footer class="sidebar-footer">
+          <button id="community-entry" class="sidebar-action" type="button" disabled><span aria-hidden="true">◇</span><span>社区</span><small>即将开放</small><b id="community-unread" hidden></b></button>
           <button id="comparisons" class="sidebar-action" type="button"><span aria-hidden="true">⇄</span><span>双路对比</span></button>
           <button id="achievements" class="sidebar-action" type="button"><span aria-hidden="true">🏅</span><span>成就</span></button>
           <button id="my-agent" class="sidebar-action" type="button"><span aria-hidden="true">🧩</span><span>我的 Agent</span></button>
@@ -63,6 +64,7 @@
           </div>
         </header>
 
+        <section id="community-panel" hidden aria-label="社区"><header><strong>社区</strong><button id="community-close" class="secondary-button" type="button">返回对话</button></header><div id="community-progress" role="progressbar" aria-label="正在载入社区" hidden></div><div id="community-frame"></div><section id="community-error" role="alert" hidden><h2>暂时无法打开社区</h2><p></p><button id="community-retry" class="primary-button" type="button">重试</button></section></section>
         <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions text">
           <div class="welcome">
             <img class="welcome-mark" src="../assets/buildme-mark.png" alt="" aria-hidden="true" />
@@ -180,6 +182,7 @@
           </div>
         </section>
 
+        <section class="settings-section"><h3>社区</h3><label class="field"><span>社区网址</span><input id="community-url" type="url" placeholder="留空时即将开放"/></label><button id="community-save" class="secondary-button" type="button">保存社区网址</button><p id="community-config-status" role="status"></p></section>
         <section class="settings-section" aria-labelledby="xray-settings-title">
           <h3 id="xray-settings-title">X 光记录</h3>
           <label class="trace-setting"><input id="record-raw-requests" type="checkbox" checked>记录发给模型的原始请求</label>
@@ -261,6 +264,7 @@
     <script src="./capabilities.js"></script>
     <script src="./achievements.js"></script>
     <script src="./compare.js"></script>
+    <script src="./community.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

@@ -77,6 +77,9 @@
           const files = node("button", `查看${side === "left" ? "左" : "右"}侧文件变化`, "secondary-button"); files.onclick = () => showChanges(side); content.append(files);
         }
       }
+      if(group.kind==='harness'&&group.rounds.length&&Object.values(group.rounds.at(-1).runs).every(run=>run.status==='done')) {
+        const share=node('button','分享到社区','secondary-button');share.type='button';share.disabled=!window.communityAvailable();share.onclick=()=>void window.shareToCommunity('compare',group.id);$('#compare-summary').append(share);
+      }
       const running = Object.values(group.rounds.at(-1)?.runs ?? {}).some((run) => run.status === "running");
       $("#compare-send").disabled = pending || running || group.workspace.expired;
       $("#compare-stop").hidden = !running; $("#compare-prompt").disabled = group.workspace.expired;

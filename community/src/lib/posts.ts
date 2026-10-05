@@ -2,8 +2,10 @@ import type { Db } from "../db/index.js";
 import type { User, Category, Tag } from "../types.js";
 import { FormError, length, httpUrl, textField } from "./validation.js";
 import { blankWork, workInput, validateWork, type WorkInput } from "./works.js";
+import { parseShare } from "./share.js";
 import { limit } from "./auth.js";
 export interface Post {
+  share_data: string;
   id: number;
   author_id: number;
   category_id: number;
@@ -37,6 +39,7 @@ export interface Post {
   first_image?: string;
 }
 export interface PostInput {
+  shareData: string;
   work: WorkInput;
   title: string;
   body: string;
@@ -49,6 +52,7 @@ export interface PostInput {
 }
 export function postInput(form: FormData): PostInput {
   return {
+    shareData: textField(form,"shareData"),
     work: workInput(form),
     title: textField(form, "title").trim(),
     body: textField(form, "body").replace(/\r\n?/g, "\n"),
@@ -61,6 +65,7 @@ export function postInput(form: FormData): PostInput {
   };
 }
 export const blankPost = (): PostInput => ({
+  shareData: "",
   work: blankWork(),
   title: "",
   body: "",
@@ -82,6 +87,7 @@ export function tags(db: Db) {
     .all() as Tag[];
 }
 export function validatePost(db: Db, input: PostInput, draft = false) {
+  parseShare(input.shareData);
   const fields: Record<string, string> = {};
   if (input.category === "4") validateWork(db, input.title, input.work, draft);
   if ((!draft && length(input.title) < 4) || length(input.title) > 80)

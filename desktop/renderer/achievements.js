@@ -9,20 +9,24 @@
         if (!result.accepted) status.textContent = "学习记录暂时无法保存，对话可继续。";
       }).catch(() => { status.textContent = "学习记录暂时无法保存，对话可继续。"; });
     };
+    function shareButton(id) {
+      const button=document.createElement('button');button.type='button';button.className='secondary-button';button.textContent='分享到社区';button.disabled=!window.communityAvailable();button.onclick=()=>void window.shareToCommunity('achievement',id);return button;
+    }
     function play() {
       if (showing || !queue.length) { if (!queue.length) consecutive = 0; return; }
       showing = true;
+      let shareId;
       const button = document.createElement("button"); button.type = "button";
       if (consecutive === 3) {
         const count = queue.length; queue.splice(0); consecutive = 0;
         button.textContent = `还解锁了 ${count} 个成就 · 查看全部`;
         button.addEventListener("click", () => void open());
       } else {
-        const unlock = queue.shift(); const definition = definitions.find((item) => item.id === unlock.id);
+        const unlock = queue.shift(); shareId=unlock.id; const definition = definitions.find((item) => item.id === unlock.id);
         button.textContent = `${definition.icon} ${definition.name} · 你刚刚解锁了一项成就`;
         button.addEventListener("click", () => void open(unlock.id)); consecutive++;
       }
-      toast.replaceChildren(button); toast.hidden = false;
+      toast.replaceChildren(button); if(shareId)toast.append(shareButton(shareId)); toast.hidden = false;
       setTimeout(() => { toast.hidden = true; toast.replaceChildren(); setTimeout(() => { showing = false; play(); }, 1000); }, 3000);
     }
     async function render(focusId) {
@@ -45,7 +49,7 @@
             await onTurn(turn); dialog.close();
           } catch (error) { status.textContent = `无法打开触发回合：${error.message || error}`; }
         });
-        grid.append(card);
+        const item=document.createElement("div");item.className="achievement-item";item.append(card);if(unlock)item.append(shareButton(definition.id));grid.append(item);
         if (focusId === definition.id) { card.dataset.highlight = "true"; card.scrollIntoView({ block: "nearest" }); card.focus(); }
       }
     }

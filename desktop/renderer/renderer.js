@@ -81,6 +81,7 @@ let cancelRequested = false;
 let streamingNode;
 let currentApproval;
 const approvalQueue = [];
+const communityPanel = window.createCommunityPanel(api);
 const xray = window.createXray(api);
 const explanations = window.createExplanations(api);
 let sessionSelection = 0;
@@ -105,10 +106,11 @@ function mergeState(result) {
   const value = result?.state || result;
   if (!value || typeof value !== "object") return;
   const patch = {};
-  for (const key of ["name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools", "recordRawRequests", "capabilities", "capabilityRegistry", "capabilityOnboarding", "capabilityUsage"]) {
+  for (const key of ["communityUrl", "name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools", "recordRawRequests", "capabilities", "capabilityRegistry", "capabilityOnboarding", "capabilityUsage"]) {
     if (value[key] !== undefined) patch[key] = value[key];
   }
   appState = { ...appState, ...patch };
+  communityPanel.sync(appState);
   capabilities.sync(appState);
   explanations.sync(appState);
 }

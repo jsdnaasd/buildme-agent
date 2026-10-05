@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("personalAgent", {
+  communityOpen: () => ipcRenderer.invoke('desktop:community-open'),
+  communityHide: () => ipcRenderer.invoke('desktop:community-hide'),
+  communityBounds: (bounds) => ipcRenderer.invoke('desktop:community-bounds', bounds),
+  communityConfig: (url) => ipcRenderer.invoke('desktop:community-config', url),
+  communityShare: (type, id) => ipcRenderer.invoke('desktop:community-share', type, id),
+  onCommunity: (listener) => { const handler = (_event, value) => listener(value); ipcRenderer.on('desktop:community-state', handler); return () => ipcRenderer.removeListener('desktop:community-state', handler); },
   state: () => ipcRenderer.invoke("desktop:state"),
   setCapability: (id, enabled) => ipcRenderer.invoke("desktop:set-capability", id, enabled),
   chooseCapabilities: (choice) => ipcRenderer.invoke("desktop:choose-capabilities", choice),

@@ -1,7 +1,7 @@
 import type { Hono, Context } from "hono";
 import type { Env, User } from "../types.js";
 import { Layout, Csrf, Empty } from "../views/layout.js";
-import { pageProps } from "../views/forms.js";
+import { AuthPage, pageProps } from "../views/forms.js";
 import { getWork, editWork, prepareCover, writeWork } from "../lib/works.js";
 import { replyRows, maxFloor, notifyMentions, notify } from "../lib/interactions.js";
 import {
@@ -54,7 +54,7 @@ function showEditorError(
 }
 export function posts(app: Hono<Env>, remote: SafeFetcher) {
   app.get("/new", (c) => {
-    requireUser(c);
+    if(!c.get("user"))return c.html(<AuthPage c={c}/>);
     return c.html(<Editor c={c} values={{...blankPost(),category:c.req.query("category") ?? "1"}} />);
   });
   app.post("/preview", async (c) => {
@@ -234,6 +234,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
               link: old.link,
               tags: old.tags_text,
               work: work ?? null,
+              shareData: old.share_data,
             }),
             now,
           );
@@ -284,6 +285,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
               ).lastInsertRowid,
           );
         }
+        db.prepare("UPDATE posts SET share_data=? WHERE id=?").run(values.shareData,id);
         db.prepare("DELETE FROM post_tags WHERE post_id=?").run(id);
         for (const tag of values.tags)
           db.prepare("INSERT INTO post_tags VALUES (?,?)").run(id, tag);
@@ -377,6 +379,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         values={{
           ...blankPost(),
           work: editWork(getWork(c.get("db"),post.id,user)),
+          shareData: post.share_data,
           title: post.title,
           body: post.body,
           category: String(post.category_id),

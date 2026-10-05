@@ -5,6 +5,8 @@ import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile }
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createCommunity } from "./community.mjs";
+import { communityOrigin, compareShare, achievementShare, shareUrl } from "./community-policy.mjs";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, safeStorage, session, shell } from "electron";
 
 import { applyProxyFromEnv, createApp, hasProxyEnv, initProfile, loadProfile, proxyUrlFromPac } from "../dist/index.js";
@@ -245,6 +247,7 @@ function normalizeConfig(value) {
     : connections[0]?.id;
   return {
     schemaVersion: 2,
+    communityUrl: typeof source.communityUrl === "string" ? communityOrigin(source.communityUrl) : "",
     connections,
     ...(activeConnectionId ? { activeConnectionId } : {}),
     ...(optionalString(source.workspacePath) ? { workspacePath: source.workspacePath.trim() } : {}),
@@ -786,6 +789,7 @@ async function desktopState() {
       }))
     : [];
   return {
+    communityUrl: config.communityUrl,
     name: profile.profile.settings.name,
     configured: Boolean(connections.find((connection) => connection.active)?.configured),
     connections,
@@ -911,6 +915,7 @@ async function setEdition(value) {
   return desktopState();
 }
 
+let community;
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1040,
@@ -926,12 +931,34 @@ function createWindow() {
       sandbox: true,
     },
   });
+  community = createCommunity(mainWindow);
   mainWindow.on("closed", () => {
+    community.dispose();
     settleAllApprovals();
     mainWindow = undefined;
   });
   mainWindow.loadFile(join(here, "renderer", "index.html"));
 }
+
+function communityHandle(channel,handler) {
+  ipcMain.handle(channel,(event,...args)=>{
+    if(event.sender!==mainWindow?.webContents || event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error("社区设置仅允许本机窗口操作");
+    return handler(...args);
+  });
+}
+communityHandle('desktop:community-open',async ()=>community.open((await getConfig()).communityUrl));
+communityHandle('desktop:community-hide',()=>community.hide());
+communityHandle('desktop:community-bounds',bounds=>community.resize(bounds));
+communityHandle('desktop:community-config',async value=>{const origin=communityOrigin(value),config=await getConfig();config.communityUrl=origin;await saveConfig(config);community.reset();return origin;});
+communityHandle('desktop:community-share',async (type,id)=>{
+  const config=await getConfig();if(!config.communityUrl)throw new Error('社区即将开放，请先在设置中配置社区网址。');
+  let data;
+  if(type==='compare')data=compareShare(await getComparisons().details(requireSessionId(id)));
+  else if(type==='achievement'){await learningPending;data=achievementShare(await getAchievements().snapshot(config.capabilities??['core']),ACHIEVEMENTS,requireSessionId(id));}
+  else throw new Error('分享类型无效');
+  await community.open(config.communityUrl,shareUrl(config.communityUrl,type,data,nativeTheme.shouldUseDarkColors?'dark':'light'));
+  return true;
+});
 
 ipcMain.handle("desktop:state", () => desktopState());
 ipcMain.handle("desktop:achievements", async () => {

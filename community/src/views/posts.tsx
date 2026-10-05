@@ -13,6 +13,8 @@ import type { Heading } from "../lib/markdown.js";
 import { WorkFields, WorkInfo } from "./works.js";
 import { getWork } from "../lib/works.js";
 import type { Reply } from "../lib/interactions.js";
+import { ShareCard } from "./share.js";
+import type { ShareData } from "../lib/share.js";
 import { ReportForm } from "./admin.js";
 import { ReplyCard, ReplyForm, Reactions, Bookmark } from "./interactions.js";
 import type { FormError } from "../lib/validation.js";
@@ -100,6 +102,7 @@ export function PostCard({ c, post }: { c: Context<Env>; post: Post }) {
         <h2 class="post-title">
           <a href={`/p/${post.id}`}>{post.title}</a>{post.is_new && <span class="new-dot" aria-label="有新内容"> ·</span>}{!!post.pinned && <span class="tag">置顶</span>}{!!post.featured && <span class="tag">精华</span>}
         </h2>
+        {post.share_data && <ShareCard data={JSON.parse(post.share_data) as ShareData}/>}
         <p class="excerpt">{post.excerpt}</p>
         <LinkCard post={post} />
         {!post.link && post.first_image && <img class="post-thumbnail" src={post.first_image} width="180" height="112" alt="正文配图" loading="lazy"/>}
@@ -243,6 +246,7 @@ export function Editor({
         <Csrf value={c.get("csrf")} />
         <input type="hidden" name="draftId" value={values.draftId} />
         <input type="hidden" name="editorId" value={editorId} />
+        <input type="hidden" name="shareData" value={values.shareData}/>
         <PostFields c={c} values={values} error={error} />
         <section class="panel" data-work-fields hidden={values.category !== "4"}><WorkFields c={c} values={values.work} error={error}/></section>
         <noscript><a href="/new?category=4">前往作品发布表单</a></noscript>
@@ -417,6 +421,7 @@ export function Detail({
         <LinkCard post={post} />
         <div class="prose-layout">
           <div class="prose" dangerouslySetInnerHTML={{ __html: post.html }} />
+          {post.share_data && <ShareCard data={JSON.parse(post.share_data) as ShareData}/>}
           {toc.length > 0 && (
             <nav class="toc" aria-label="文章目录">
               <strong>本文目录</strong>

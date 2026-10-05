@@ -36,7 +36,7 @@ const server = serve({
   fetch: createApp(config, db).fetch,
   hostname: "127.0.0.1",
   port: 3198,
-});
+}, () => process.send?.({ready:true}));
 process.on("SIGTERM", () =>
   server.close(() => {
     db.close();

@@ -22,7 +22,7 @@ const originalOpenAiKey = process.env.OPENAI_API_KEY;
 const ipcHandlers = new Map();
 const runtimeListeners = new Map();
 const windows = [];
-const nativeTheme = { themeSource: "system" };
+const nativeTheme = { themeSource: "system", on: vi.fn(), removeListener: vi.fn() };
 const dialog = { showSaveDialog: vi.fn(async () => ({ canceled: false, filePath: join(appData, "learning-export.json") })), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) };
 const clipboard = { readText: vi.fn(() => "clipboard-key"), writeText: vi.fn() };
 const shell = { openExternal: vi.fn(async () => ""), openPath: vi.fn(async () => "") };
