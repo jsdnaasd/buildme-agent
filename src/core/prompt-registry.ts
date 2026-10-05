@@ -1,5 +1,6 @@
 import { Service } from "@deepseek-ai/cordis";
 import type { PromptSegment } from "./trace.js";
+import { ALL_CAPABILITIES } from "./capabilities.js";
 
 export interface PromptSection {
 	readonly name: string;
@@ -37,8 +38,9 @@ export class SystemPromptRuntime extends Service {
 		return this.renderSections().map((section) => section.text).join("\n\n");
 	}
 
-	renderSections(): (Omit<PromptSection, "text"> & { text: string })[] {
+	renderSections(capabilities?: readonly string[]): (Omit<PromptSection, "text"> & { text: string })[] {
 		return this.list()
+			.filter((section) => capabilities === undefined || (section.source === "skill-catalog" ? capabilities.includes("skills") : !section.capabilityId || !ALL_CAPABILITIES.includes(section.capabilityId) || capabilities.includes(section.capabilityId)))
 			.map((section) => ({ ...section, text: (typeof section.text === "function" ? section.text() : section.text).trim() }))
 			.filter((section) => section.text.length > 0);
 	}

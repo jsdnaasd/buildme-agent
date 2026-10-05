@@ -376,3 +376,32 @@ dialog::backdrop { background: rgb(0 0 0 / 56%); backdrop-filter: blur(3px); }
 .xray-help-card h4 { margin: 16px 0 5px; color: var(--text); font-size: 11px; font-weight: 550; }
 .xray-help-card p { margin: 0; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
 .xray-help-dismiss { margin-top: 12px; }
+
+.capabilities-dialog, .capability-onboarding { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 26px; max-height: 88vh; overflow: auto; }
+.capabilities-dialog { width: min(880px, calc(100vw - 28px)); }
+.capabilities-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.capabilities-dialog h2, .capability-onboarding h2 { margin: 0 0 8px; }
+.capabilities-dialog p, .capability-onboarding p { color: var(--text-subtle); line-height: 1.6; }
+.capability-progress { padding: 18px 0 0; }
+.capability-progress progress { display: block; width: 100%; height: 8px; margin-top: 12px; accent-color: var(--accent); }
+.capability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.capability-card { border: 1px solid var(--border); border-radius: 12px; padding: 18px; background: var(--surface-raised); }
+.capability-card label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.capability-card input { appearance: none; width: 38px; height: 22px; margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--field); cursor: pointer; flex-shrink: 0; }
+.capability-card input::before { content: ""; display: block; width: 14px; height: 14px; margin: 3px; border-radius: 50%; background: var(--text-muted); transition: transform .12s ease; }
+.capability-card input:checked { background: var(--accent); border-color: var(--accent); }
+.capability-card input:checked::before { background: var(--accent-contrast); transform: translateX(16px); }
+.capability-card input:disabled { opacity: .55; cursor: default; }
+.capability-card .secondary-button, .capability-overflow .secondary-button { padding: 7px 12px; border-radius: 7px; }
+.capability-card p { font-size: 12px; margin: 14px 0; }
+.capability-card p b { display: block; color: var(--text); margin-bottom: 4px; font-weight: 500; }
+.capability-card footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.capability-card small { color: var(--text-muted); line-height: 1.6; }
+.capability-exclusive { background: var(--surface); }
+.capability-onboarding { width: min(480px, calc(100vw - 28px)); }
+.capability-choice { display: block; width: 100%; margin-top: 12px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised); color: var(--text); text-align: left; }
+.capability-choice:first-of-type { border-color: var(--accent); }
+.capability-choice span { display: block; margin-top: 8px; color: var(--text-subtle); font-size: 12px; line-height: 1.6; }
+.capability-overflow { display: flex; gap: 12px; align-items: center; padding: 16px; border: 1px solid var(--accent); border-radius: 12px; line-height: 1.6; font-size: 13px; }
+.capability-overflow button { flex-shrink: 0; }
+@media (max-width: 900px) { .capability-grid { grid-template-columns: 1fr; } .capabilities-dialog, .capability-onboarding { padding: 18px; } }

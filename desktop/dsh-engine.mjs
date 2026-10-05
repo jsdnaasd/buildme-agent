@@ -25,12 +25,12 @@ export function dshLauncherPath() {
 }
 
 /**
- * The academic persona shared with Build mode, with its tool section replaced
+ * The agent persona shared with Build mode, with its tool section replaced
  * by the DSH tool names (read/glob/grep/web_search/subagent/workflow/...).
  */
 export async function fullEditionPrompt(promptsDir) {
   const [base, tools] = await Promise.all([
-    readFile(join(promptsDir, "buildme-academic.md"), "utf8"),
+    readFile(join(promptsDir, "buildme-agent.md"), "utf8"),
     readFile(join(promptsDir, "buildme-tools-dsh.md"), "utf8"),
   ]);
   const start = base.indexOf("## 工具使用");

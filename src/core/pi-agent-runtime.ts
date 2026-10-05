@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type AgentMessage, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { Service, type Context } from "@deepseek-ai/cordis";
 
@@ -16,7 +16,8 @@ import type {
 import { redactDurable, redactError } from "./redact.js";
 import { ContextCompactor } from "./context-compaction.js";
 import type { SessionLease } from "./session-store.js";
-import { TraceCollector } from "./trace-collector.js";
+import { contextBreakdown, TraceCollector } from "./trace-collector.js";
+import { resolveCapabilities } from "./capabilities.js";
 import { estimateTokens } from "./trace.js";
 import { traceAttempt } from "./trace-redact.js";
 
@@ -27,6 +28,7 @@ export interface AgentRunOptions {
 	readonly permissionMode?: AgentPermissionMode;
 	readonly edition?: AgentEdition;
 	readonly recordRawRequests?: boolean;
+	readonly capabilities?: readonly string[];
 	readonly signal?: AbortSignal;
 	readonly parentTrace?: {
 		readonly collector: TraceCollector;
@@ -259,6 +261,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 	}
 
 	run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		if (options.capabilities !== undefined) options = { ...options, capabilities: resolveCapabilities(options.capabilities) };
 		if (this.closed) return Promise.reject(new Error("Agent runtime is shutting down."));
 		if (options.sessionId && this.pendingSessions.has(options.sessionId)) {
 			return Promise.reject(new Error(`Session ${options.sessionId} already has an active run.`));
@@ -322,7 +325,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				this.ctx.sessions.readMessages(sessionId),
 				this.ctx.sessions.readCompaction(sessionId),
 			]);
-			const sections = this.ctx.systemPrompt.renderSections();
+			const sections = this.ctx.systemPrompt.renderSections(options.capabilities);
 			const systemPrompt = sections.map((section) => section.text).join("\n\n") || settings.systemPrompt;
 			trace = traceAttempt(() => new TraceCollector((notification) => this.ctx.emit("piharness/trace", notification), [requestApiKey], options.recordRawRequests));
 			traceAttempt(() => {
@@ -334,6 +337,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 			traceAttempt(() => trace?.beginTurn({
 				engine: "pi", sessionId, turnIndex: previousMessages.filter((message) => message.role === "user").length + 1,
 				...(parent ? { parentTurnId: parent.collector.id, parentToolCallId: parent.toolCallId } : {}),
+				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
 				userPrompt: prompt, model: { provider: model.provider, id: model.id, contextWindow: model.contextWindow },
 				fidelity: { promptSegments: true, rawRequest: options.recordRawRequests !== false, usage: "exact", subagents: true, compaction: true, approvals: true },
 				promptSegments: (sections.length ? sections : [{ name: "base:settings", text: systemPrompt, source: "base" as const }]).map((section) => ({
@@ -343,8 +347,17 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				})),
 			}));
 			const contextWindow = model.contextWindow > 0 ? model.contextWindow : 128_000;
-			const traceStream = traceAttempt(() => trace?.wrapStream(resolved.stream, contextWindow - Math.min(16_384, Math.floor(contextWindow * 0.2)))) ?? resolved.stream;
-			const compactor = new ContextCompactor({
+			const contextLimit = contextWindow - Math.min(16_384, Math.floor(contextWindow * 0.2));
+			const observedStream = traceAttempt(() => trace?.wrapStream(resolved.stream, contextLimit)) ?? resolved.stream;
+			const compact = options.capabilities === undefined || options.capabilities.includes("compaction");
+			const traceStream: StreamFn = (model, context, streamOptions) => {
+				if (!compact) traceAttempt(() => {
+					const usage = contextBreakdown(context, contextLimit);
+					if (usage.total > usage.limit) trace?.event({ type: "context.overflow", estTokens: usage.total, limit: usage.limit });
+				});
+				return observedStream(model, context, streamOptions);
+			};
+			const compactor = compact ? new ContextCompactor({
 				model,
 				stream: traceStream,
 				initial: compaction,
@@ -357,12 +370,13 @@ export class PiAgentLoop extends Service implements AgentFactory {
 						tokensBefore,
 					});
 				},
-			});
+			}) : undefined;
 			const workspacePath = options.workspacePath ?? process.cwd();
 			const permissionMode = options.permissionMode ?? "ask";
 			const edition = options.edition ?? "standard";
 			const tools = [...this.ctx.tools.list({
 				workspacePath, permissionMode, edition, connection,
+				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
 				recordRawRequests: options.recordRawRequests !== false,
 				...(trace ? { trace } : {}),
 			})];
@@ -375,7 +389,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 					thinkingLevel: settings.thinkingLevel ?? "off",
 				},
 				streamFn: traceStream,
-				transformContext: (messages, signal) => compactor.transform(messages, signal),
+				transformContext: (messages, signal) => compactor ? compactor.transform(messages, signal) : Promise.resolve(messages),
 				sessionId,
 				toolExecution: settings.toolExecution ?? "parallel",
 				beforeToolCall: async ({ toolCall, args }, signal) => {

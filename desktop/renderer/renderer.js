@@ -83,6 +83,10 @@ let currentApproval;
 const approvalQueue = [];
 const xray = window.createXray(api);
 let sessionSelection = 0;
+const capabilities = window.createCapabilities(api, {
+  onChange: mergeState,
+  onExample: (text) => { elements.prompt.value = text; autoSizePrompt(); elements.prompt.focus(); },
+});
 
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
@@ -97,10 +101,11 @@ function mergeState(result) {
   const value = result?.state || result;
   if (!value || typeof value !== "object") return;
   const patch = {};
-  for (const key of ["name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools", "recordRawRequests"]) {
+  for (const key of ["name", "configured", "connections", "activeConnectionId", "catalog", "workspace", "permissionMode", "theme", "edition", "fullTools", "recordRawRequests", "capabilities", "capabilityRegistry", "capabilityOnboarding", "capabilityUsage"]) {
     if (value[key] !== undefined) patch[key] = value[key];
   }
   appState = { ...appState, ...patch };
+  capabilities.sync(appState);
 }
 
 function activeConnection() {
@@ -585,6 +590,7 @@ elements.composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = elements.prompt.value.trim();
   if (!text || isRunning) return;
+  if (appState.capabilityOnboarding && appState.edition !== "full") { capabilities.guide(); return; }
   if (!activeConnection()) {
     openSettings();
     setStatus("请先添加并选择模型连接", "error");
@@ -821,5 +827,6 @@ if (typeof api.onApproval === "function" && typeof api.respondApproval === "func
     syncConnectionSummary();
     if (!appState.configured || !activeConnection()) openSettings();
     await refreshSessions();
+    capabilities.guide();
   } catch (error) { setStatus(errorText(error), "error"); }
 })();

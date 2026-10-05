@@ -9,6 +9,7 @@ import { Type, type Static, type TSchema } from "typebox";
 import { definePlugin } from "../contracts.js";
 import { documentKind, extractDocxMarkdown, extractPdfPages, htmlToReadableText } from "../core/readable-text.js";
 import { traceAttempt } from "../core/trace-redact.js";
+import { childCapabilities } from "../core/capabilities.js";
 
 const fullTool = <TSchemaValue extends TSchema>(tool: AgentTool<TSchemaValue>): AgentTool<TSchemaValue> => tool;
 
@@ -204,6 +205,7 @@ export const fullEditionTools = definePlugin(
 			return ctx.agents.run(prompt, {
 				connection: scope.connection, workspacePath: scope.workspacePath, permissionMode: scope.permissionMode,
 				edition: "standard", recordRawRequests: scope.recordRawRequests !== false,
+				...(scope.capabilities === undefined ? {} : { capabilities: childCapabilities(scope.capabilities) }),
 				...(signal ? { signal } : {}),
 				...(scope.trace ? { parentTrace: { collector: scope.trace, kind, toolCallId, ...(stepIndex === undefined ? {} : { stepIndex }) } } : {}),
 			});

@@ -4,7 +4,32 @@
 
 ## 当前状态
 
-**M0 地基与 M1（Pi X 光界面）已完成。** 第五轮补齐本地讲解并完成本机验收。下一阶段为 M2 能力开关，按 [分批实施计划](./xray-plan.md) 逐轮推进；能力开关与提示词联动的跨阶段验收随 M2 完成。
+**M0、M1 与 M2（能力开关）已完成本机验收。** M2 的九项开关已贯穿运行时、实际请求、Trace、提示词 X 光与桌面持久化。接下来按已批准的 [实施计划](./xray-plan.md) 连续推进 M3 → M4 → M5；Windows 仍待实际验证。
+
+## M2 交付与证据
+
+- 唯一注册表 `src/core/capabilities.ts`，运行入口在首次异步前解析并冻结配置；工具列表、提示词段、压缩及 Trace 共用快照。未传 capabilities 保留原 edition 行为，第三方工具沿用注册和审批规则。
+- 基础能力始终保留；workflow 开启 subagents，关闭 subagents 一并关闭 workflow。子任务继承父能力但去掉两种委派能力，旧调用不变。
+- 九份能力提示词有独立 capabilityId/sourcePath。关闭 Skill 不求值目录段、不提供工具或用法段；开启后 X 光显示新增段。关闭压缩直接使用原消息，超限记录 overflow，模型实际成功/错误原样保留。
+- 「我的 Agent」九项开关、五项完全体说明、首次最小/全开选择、输入框标签、示例只填入、超限开启压缩按钮。共享已校正文案；专属对比入口明确留到 M4，不显示假按钮。
+- `CapabilityUsageStore` 按成功工具结果与实际压缩/裁剪计数，按回合去重并持久化；不开启即算使用，也不从当前开关反推历史。
+
+| 条目 | 验收证据 |
+|---|---|
+| C-1 | DOM 验证 9 开关、5 专属卡和三类说明；Electron 浅深主题和窄屏截图检查。文案沿用 M1 的事实修正，例如关闭 web_fetch 不等于禁止所有联网 |
+| C-2 / B-5 联动 | 两个真实 Pi 假模型回合：最小能力无 skill 工具和段落；面板开启 skills 后下一回合二者出现，提示词 X 光显示「新增 1」 |
+| C-3 | 自动遍历九项能力，逐项核对实际 llm.request.toolNames 和 promptSegments，实际系统提示词等于 Trace 段拼接 |
+| C-4 | 单元、IPC 和 DOM 验证依赖及提示；子任务请求保留 web/skills，移除 delegate_task/workflow_run |
+| C-5 | 运行入口立即修改调用方数组，当前快照不变，下回合变化；两个独立 Electron 进程验证重启保留开关与使用次数 |
+| C-6 | 1000 token 假模型容量下，保留完整超限输入、无压缩/裁剪；分别保留真实测试响应和 context length exceeded 错误；DOM 验证开启压缩只影响下一回合 |
+| C-7 / C-8 | 旧 CLI/edition、插件及 DSH 提示词测试通过，未删除 DSH 架构或依赖 |
+| C-9 / C-10 | Electron 首次引导最小选项只有 core；示例只填输入框，不自动发送；Esc 关闭面板 |
+
+检查：`pnpm test` **17 个文件、177 项通过**；`pnpm typecheck`、`pnpm test:typecheck`、`pnpm lint`、`pnpm build` 通过。新增测试最初缺少文档插件、旧断言未包含 capabilities，已修正测试配置；lint 缺失 URL 导入已修正，没有跳过断言。单元测试的故意插件失败输出不代表套件失败。
+
+`BUILDME_CAPABILITY_SCREENSHOTS=/tmp/buildme-m2-screenshots node scripts/verify-capabilities-electron.mjs` 使用生产 main/preload/renderer 与独立临时 appData/userData，write/read 两进程均通过；实际调用 workspace_info 两次，重启 core 计数 2、skills 计数 0（开启未调用）。截图保存在指定临时目录，脚本只清理自己创建的验收数据。全部模型响应来自 faux，无真实 API 消耗。
+
+为使拆分提示词后的提交可独立运行，纳入此前已准备的 buildme-academic → buildme-agent 命名迁移，以及配套 profile、DSH 提示词读取和测试迁移；这些已有改动不归为本轮原创。其余既有 DSH 启动调整、README、压缩文案和社区工作继续保留。没有新增依赖、部署或推送。
 
 ## 第五轮交付
 
@@ -158,9 +183,9 @@
 
 可复现 Electron 验收：先运行 `pnpm build`，再运行 `node scripts/verify-xray-electron.mjs`。脚本隔离 userData/appData，完成后清理自己创建的临时数据。
 
-## 下一轮：M2 第一批
+## 下一步：M3 成就
 
-先做唯一能力注册表、运行时能力快照与工具过滤、workflow / subagents 依赖处理；用真实工具集合与现有行为验证。范围、顺序和验收详见 [分批实施计划](./xray-plan.md)。LLM 深入讲解按 PRD 保留到 M5。
+实现确定性规则、去重持久化与审批结果区分，再接成就页与导出。范围、顺序和验收详见 [分批实施计划](./xray-plan.md)。LLM 深入讲解按 PRD 保留到 M5。
 
 后续顺序保持 PRD：M2 能力开关 → M3 成就 → M4 DSH/隔离工作区双引擎对比 → M5 讲解与模型对比。
 

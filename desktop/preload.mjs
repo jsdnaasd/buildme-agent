@@ -2,6 +2,13 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("personalAgent", {
   state: () => ipcRenderer.invoke("desktop:state"),
+  setCapability: (id, enabled) => ipcRenderer.invoke("desktop:set-capability", id, enabled),
+  chooseCapabilities: (choice) => ipcRenderer.invoke("desktop:choose-capabilities", choice),
+  onCapabilityUsage: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("desktop:capability-usage", handler);
+    return () => ipcRenderer.removeListener("desktop:capability-usage", handler);
+  },
   catalog: () => ipcRenderer.invoke("desktop:catalog"),
   sessions: () => ipcRenderer.invoke("desktop:sessions"),
   messages: (sessionId) => ipcRenderer.invoke("desktop:messages", sessionId),

@@ -7,7 +7,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Noti
 
 import { applyProxyFromEnv, createApp, hasProxyEnv, initProfile, loadProfile, proxyUrlFromPac } from "../dist/index.js";
 import { ACTIVE_API_KEY_ENV, DshEngine, dshRoute, fullEditionPrompt } from "./dsh-engine.mjs";
-import { TraceStore, redactTrace } from "../dist/index.js";
+import { CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability, CapabilityUsageStore, TraceStore, redactTrace } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_NAME = "BuildMe";
@@ -79,6 +79,7 @@ let stopStream;
 let stopApprovals;
 let stopTrace;
 let traceStore;
+let capabilityUsage;
 let quitting = false;
 let profilePathPromise;
 const pendingApprovals = new Map();
@@ -98,6 +99,20 @@ function appDataPath(name) {
 function getTraceStore() {
   traceStore ??= new TraceStore(appDataPath("traces"));
   return traceStore;
+}
+
+function getCapabilityUsage() {
+  capabilityUsage ??= new CapabilityUsageStore(appDataPath("capability-usage.json"));
+  return capabilityUsage;
+}
+
+async function capabilityState(config) {
+  return {
+    capabilities: config.capabilities ?? ["core"],
+    capabilityOnboarding: config.capabilities === undefined,
+    capabilityRegistry: CAPABILITIES,
+    capabilityUsage: await getCapabilityUsage().counts(),
+  };
 }
 
 async function migrateLegacyUserData() {
@@ -211,6 +226,7 @@ function normalizeConfig(value) {
     theme: THEMES.has(source.theme) ? source.theme : "system",
     edition: EDITIONS.has(source.edition) ? source.edition : "standard",
     recordRawRequests: source.recordRawRequests !== false,
+    ...(source.capabilities !== undefined ? { capabilities: resolveCapabilities(source.capabilities) } : {}),
   };
 }
 
@@ -559,6 +575,11 @@ function ensureHarness() {
       try {
         const safe = redactTrace(notification);
         void getTraceStore().accept(safe);
+        if (safe.type === "turn-end" && safe.turn.engine === "pi") {
+          void getCapabilityUsage().accept(safe.turn).then(async () => {
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:capability-usage", await getCapabilityUsage().counts());
+          }).catch(() => console.warn("[能力] 本回合使用次数未能保存。"));
+        }
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
       } catch {
         console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
@@ -719,6 +740,7 @@ async function desktopState() {
     theme: config.theme,
     edition: config.edition,
     recordRawRequests: config.recordRawRequests,
+    ...await capabilityState(config),
     fullTools: config.edition === "full" && dshEngine?.running
       ? await dshEngine.request("tools/list").then((tools) => tools.map((tool) => tool.name), () => [])
       : [],
@@ -904,6 +926,18 @@ ipcMain.handle("desktop:set-record-raw-requests", async (_event, enabled) => {
   await saveConfig({ ...await getConfig(), recordRawRequests: enabled });
   return enabled;
 });
+ipcMain.handle("desktop:set-capability", async (_event, id, enabled) => {
+  if (typeof id !== "string" || typeof enabled !== "boolean") throw new Error("能力配置格式不正确。");
+  const config = await getConfig();
+  const capabilities = toggleCapability(config.capabilities ?? ["core"], id, enabled);
+  const saved = await saveConfig({ ...config, capabilities });
+  return capabilityState(saved);
+});
+ipcMain.handle("desktop:choose-capabilities", async (_event, choice) => {
+  if (choice !== "minimal" && choice !== "all") throw new Error("请选择最小能力或全部能力。");
+  const saved = await saveConfig({ ...await getConfig(), capabilities: choice === "all" ? ALL_CAPABILITIES : ["core"] });
+  return capabilityState(saved);
+});
 ipcMain.handle("desktop:send", async (_event, payload) => {
   const prompt = parsePrompt(payload?.prompt);
   const requestedSession = parseSessionId(payload?.sessionId);
@@ -928,8 +962,8 @@ ipcMain.handle("desktop:send", async (_event, payload) => {
       },
       ...(config.workspacePath ? { workspacePath: config.workspacePath } : {}),
       permissionMode: config.permissionMode,
-      // Build mode always runs with every BuildMe tool (documents, web, skills, plans, delegation).
       edition: "full",
+      capabilities: config.capabilities ?? ["core"],
       recordRawRequests: config.recordRawRequests,
     });
   } finally {

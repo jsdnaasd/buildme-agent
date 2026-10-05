@@ -152,16 +152,16 @@ describe("skills", () => {
 		const ctx = app.ctx;
 		const scope: ToolExecutionScope = { workspacePath: fixture.dir, permissionMode: "bypass", edition: "full" };
 		try {
-			const dir = join(fixture.dir, ".buildme", "skills", "literature-review");
+			const dir = join(fixture.dir, ".buildme", "skills", "code-review");
 			await mkdir(join(dir, "templates"), { recursive: true });
-			await writeFile(join(dir, "SKILL.md"), "---\nname: literature-review\ndescription: 按主题组织文献综述\n---\n\n# 文献综述\n\n第一步：列出主题。\n");
+			await writeFile(join(dir, "SKILL.md"), "---\nname: code-review\ndescription: 按清单审查代码改动\n---\n\n# 代码审查\n\n第一步：列出改动的文件。\n");
 			await writeFile(join(dir, "templates", "outline.md"), "outline");
 
 			const catalog = text(await namedTool(ctx, "skill_catalog", scope).execute("c1", {}));
-			expect(catalog).toContain("- literature-review：按主题组织文献综述");
+			expect(catalog).toContain("- code-review：按清单审查代码改动");
 
-			const loaded = text(await namedTool(ctx, "skill_load", scope).execute("l1", { name: "literature-review" }));
-			expect(loaded).toContain("第一步：列出主题。");
+			const loaded = text(await namedTool(ctx, "skill_load", scope).execute("l1", { name: "code-review" }));
+			expect(loaded).toContain("第一步：列出改动的文件。");
 			expect(loaded).toContain(join("templates", "outline.md"));
 
 			await expect(namedTool(ctx, "skill_load", scope).execute("l2", { name: "missing" })).rejects.toThrow(/not found/u);
@@ -209,7 +209,7 @@ describe("context compaction", () => {
 			keepRecentTokens: 600,
 			onCompacted: async (state) => void persisted.push(state),
 		});
-		const long = "文献内容 ".repeat(800);
+		const long = "文档内容 ".repeat(800);
 		const history: AgentMessage[] = [];
 		for (let turn = 0; turn < 6; turn += 1) history.push(user(`question ${turn} ${long}`), assistant(`answer ${turn}`));
 
@@ -247,12 +247,13 @@ describe("context compaction", () => {
 });
 
 describe("default prompt", () => {
-	it("maps the removed Claude Code preset to the academic prompt", async () => {
-		const fixture = await tempWorkspace();
-		try {
-			const profile = join(fixture.dir, "profile");
-			await initProfile(profile, "legacy");
-			await writeFile(join(profile, "cordis.patch.yml"), `
+	for (const preset of ["@buildme/claude-code-opus-5", "@buildme/academic"]) {
+		it(`maps the removed ${preset} preset to the default agent prompt`, async () => {
+			const fixture = await tempWorkspace();
+			try {
+				const profile = join(fixture.dir, "profile");
+				await initProfile(profile, "legacy");
+				await writeFile(join(profile, "cordis.patch.yml"), `
 - id: settings
   config:
     name: legacy
@@ -260,14 +261,16 @@ describe("default prompt", () => {
     agent:
       provider: deepseek
       model: deepseek-v4-flash
-      systemPrompt: '@buildme/claude-code-opus-5'
+      systemPrompt: '${preset}'
 `);
-			const loaded = await loadProfile(profile, { homePatch: false });
-			expect(loaded.profile.settings.agent.systemPrompt).toContain("你是 BuildMe");
-		} finally {
-			await fixture.cleanup();
-		}
-	});
+				const loaded = await loadProfile(profile, { homePatch: false });
+				expect(loaded.profile.settings.agent.systemPrompt).toContain("你是 BuildMe");
+				expect(loaded.profile.settings.agent.systemPrompt).not.toContain("论文");
+			} finally {
+				await fixture.cleanup();
+			}
+		});
+	}
 });
 
 describe("network proxy", () => {

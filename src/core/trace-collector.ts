@@ -5,6 +5,7 @@ import type { Context as ModelContext } from "@earendil-works/pi-ai";
 
 import { estimateTokens, updateTraceUsage, type ContextBreakdown, type TraceEvent, type TraceEventInput, type TraceNotification, type TraceTurn } from "./trace.js";
 import { redactTrace, traceAttempt, truncateUtf8 } from "./trace-redact.js";
+import { capabilityForTool } from "./capabilities.js";
 
 export const TRACE_RAW_BYTES = 2 * 1024 * 1024;
 export const TRACE_PREVIEW_BYTES = 4 * 1024;
@@ -133,8 +134,10 @@ export class TraceCollector {
 			this.parallelGroup = parallel && calls.length > 1 && !calls.some((call) => sequentialTools.includes(call.name)) ? this.round : undefined;
 		} else if (event.type === "tool_execution_start") {
 			this.toolsStarted.set(event.toolCallId, performance.now());
+			const capabilityId = capabilityForTool(event.toolName);
 			this.event({
 				type: "tool.call", round: this.round, toolCallId: event.toolCallId, name: event.toolName, args: event.args,
+				...(capabilityId === undefined ? {} : { capabilityId }),
 				...(this.parallelGroup === undefined ? {} : { parallelGroup: this.parallelGroup }),
 			});
 		} else if (event.type === "tool_execution_end") {

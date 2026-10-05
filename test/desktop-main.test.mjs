@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
+import { CapabilityUsageStore } from "../src/core/capability-usage.ts";
+import { CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability } from "../src/core/capabilities.ts";
 import { TraceStore } from "../src/core/trace-store.ts";
 import { redactTrace } from "../src/core/trace-redact.ts";
 
@@ -139,7 +141,7 @@ beforeAll(async () => {
     applyProxyFromEnv: vi.fn(() => false),
     hasProxyEnv: vi.fn(() => false),
     proxyUrlFromPac: vi.fn(() => undefined),
-    createApp, TraceStore, redactTrace,
+    createApp, TraceStore, redactTrace, CapabilityUsageStore, CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability,
     initProfile: vi.fn(async (path) => path),
     loadProfile: vi.fn(async () => ({ profile: { settings: { name: "BuildMe" } } })),
   }));
@@ -216,6 +218,24 @@ describe("Desktop main-process state", () => {
     expect(JSON.parse(migrated).connections[0]).toHaveProperty("apiKeyEncrypted");
   });
 
+  it("persists capabilities, dependencies and onboarding independently of running rounds", async () => {
+    const state = await ipcHandlers.get("desktop:state")();
+    expect(state.capabilityOnboarding).toBe(true);
+    expect(state.capabilities).toEqual(["core"]);
+    expect(state.capabilityRegistry).toHaveLength(10);
+    const choose = ipcHandlers.get("desktop:choose-capabilities");
+    const toggle = ipcHandlers.get("desktop:set-capability");
+    expect((await choose(undefined, "minimal")).capabilityOnboarding).toBe(false);
+    expect((await toggle(undefined, "workflow", true)).capabilities).toEqual(["core", "subagents", "workflow"]);
+    expect((await toggle(undefined, "subagents", false)).capabilities).toEqual(["core"]);
+    await expect(toggle(undefined, "core", false)).rejects.toThrow("不能关闭");
+    await expect(toggle(undefined, "invalid", true)).rejects.toThrow("未知能力");
+    await expect(choose(undefined, "invalid")).rejects.toThrow("请选择");
+    expect((await choose(undefined, "all")).capabilities).toEqual(ALL_CAPABILITIES);
+    expect(JSON.parse(readFileSync(join(appData, "desktop-settings.json"), "utf8")).capabilities).toEqual(ALL_CAPABILITIES);
+    await choose(undefined, "minimal");
+  });
+
   it("keeps Desktop secrets request-scoped and leaves inherited environment variables unchanged", async () => {
     const saveKey = ipcHandlers.get("desktop:save-key");
     await expect(saveKey(undefined, " desktop-key ")).resolves.toEqual({ configured: true });
@@ -278,6 +298,7 @@ describe("Desktop main-process state", () => {
       workspacePath: canonicalWorkspace,
       permissionMode: "workspace-write",
       edition: "full",
+      capabilities: ["core"],
       recordRawRequests: true,
     });
   });

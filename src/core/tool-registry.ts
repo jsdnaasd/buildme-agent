@@ -5,6 +5,7 @@ import { Service } from "@deepseek-ai/cordis";
 
 import type { AgentEdition, RegisteredTool, ToolCallRequest, ToolGate, ToolGateDecision } from "../contracts.js";
 import type { TraceCollector } from "./trace-collector.js";
+import { capabilityForTool } from "./capabilities.js";
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
@@ -16,6 +17,7 @@ export interface ToolExecutionScope {
 	readonly connection?: import("../contracts.js").AgentConnection;
 	readonly trace?: TraceCollector;
 	readonly recordRawRequests?: boolean;
+	readonly capabilities?: readonly string[];
 }
 
 /**
@@ -52,7 +54,12 @@ export class ToolRegistry extends Service {
 
 	list(scope?: ToolExecutionScope): readonly AgentTool[] {
 		return [...this.entries.values()]
-			.filter((entry) => entry.edition === "standard" || scope?.edition === "full")
+			.filter((entry) => {
+				const capability = capabilityForTool(entry.tool.name);
+				return scope?.capabilities !== undefined && capability !== undefined
+					? capability === "core" || scope.capabilities.includes(capability)
+					: entry.edition === "standard" || scope?.edition === "full";
+			})
 			.map((entry) => {
 				if (!scope) return entry.tool;
 				const tool = entry.tool;

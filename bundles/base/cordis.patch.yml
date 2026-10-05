@@ -12,7 +12,7 @@
           model: deepseek-v4-flash
           thinkingLevel: off
           toolExecution: parallel
-          systemPrompt: '@buildme/academic'
+          systemPrompt: '@buildme/agent'
 
     - id: llm
       name: cordis:piharness-llm
@@ -45,7 +45,7 @@
     - id: workspace-tools
       name: cordis:piharness-workspace-tools-pi
 
-    # PDF (per page), Word .docx, HTML and plain-text reading for papers.
+    # PDF (per page), Word .docx, HTML and plain-text document reading.
     - id: document-tools
       name: cordis:piharness-document-tools
 

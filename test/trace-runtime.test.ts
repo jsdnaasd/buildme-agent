@@ -64,6 +64,30 @@ export default plugin;
 afterEach(() => vi.restoreAllMocks());
 
 describe("Pi X 光执行链", () => {
+	it("reports overflow with compaction disabled and sends untrimmed input to the model", async () => {
+		const f = await fixture(`fauxAssistantMessage("model actually accepted the input"),`);
+		try {
+			const content = "the original input ".repeat(1000);
+			const result = await f.app.ctx.agents.run(content, { capabilities: ["core"] });
+			expect(result.text).toBe("model actually accepted the input");
+			const turn = f.turn();
+			expect(turn.events.some((e) => e.type === "context.overflow")).toBe(true);
+			expect(turn.events.some((e) => e.type === "context.compacted" || e.type === "context.clipped")).toBe(false);
+			expect(turn.usage.modelCalls).toBe(1);
+			const request = turn.events.find((e) => e.type === "llm.request")!;
+			expect(JSON.stringify(request.raw)).toContain(content);
+		} finally { await f.close(); }
+	});
+
+	it("retains the provider overflow error instead of replacing it with a fake success", async () => {
+		const f = await fixture(`fauxAssistantMessage([], { stopReason: "error", errorMessage: "context length exceeded" }),`);
+		try {
+			await expect(f.app.ctx.agents.run("long ".repeat(3000), { capabilities: ["core"] })).rejects.toThrow("context length exceeded");
+			expect(f.turn().status).toBe("error");
+			expect(f.turn().events.some((e) => e.type === "context.overflow")).toBe(true);
+		} finally { await f.close(); }
+	});
+
 	it("captures two real tools, usage, live ordering, immutable prompts and a restartable redacted turn", async () => {
 		const f = await fixture();
 		try {

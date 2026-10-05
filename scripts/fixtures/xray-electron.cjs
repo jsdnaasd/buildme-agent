@@ -32,6 +32,8 @@ async function verify(window) {
   }); window.nextXrayFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); void 0;`);
   await js("window.personalAgent.state()");
   if (phase === "write") {
+    await js("waitForXrayUI(() => document.querySelector('#capability-onboarding').open)");
+    await js("document.querySelector('#capability-choose-all').click(); waitForXrayUI(() => !document.querySelector('#capability-onboarding').open)");
     const result = await js(`(async () => {
       const events = [];
       let finalTurn;

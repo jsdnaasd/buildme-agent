@@ -34,6 +34,7 @@
         </section>
 
         <footer class="sidebar-footer">
+          <button id="my-agent" class="sidebar-action" type="button"><span aria-hidden="true">🧩</span><span>我的 Agent</span></button>
           <button id="settings" class="sidebar-action" type="button">
             <span class="sidebar-action-icon" aria-hidden="true">⌘</span><span>模型与偏好</span><kbd>⌘,</kbd>
           </button>
@@ -69,6 +70,7 @@
 
         <footer class="composer-dock">
           <div class="context-bar" aria-label="当前运行环境">
+            <button id="capability-chip" class="context-chip" type="button">你的 Agent</button>
             <div id="edition-chip" class="edition-chip" hidden aria-live="polite"></div>
             <button id="workspace-chip" class="context-chip" type="button" title="选择工作文件夹">
               <span aria-hidden="true">▱</span><span id="workspace-label">选择文件夹</span>
@@ -208,10 +210,27 @@
       </section>
     </dialog>
 
+    <dialog id="capabilities-dialog" class="capabilities-dialog" aria-labelledby="capability-title">
+      <header><div><h2 id="capability-title">我的 Agent</h2><p>一点点增加能力，在 X 光里看见变化。</p></div><button id="capability-close" class="icon-button" type="button" aria-label="关闭能力面板">×</button></header>
+      <section class="capability-progress"><strong id="capability-progress-label"></strong><progress id="capability-progress" max="9" value="0"></progress><p id="capability-remaining"></p></section>
+      <p id="capability-engine-note" hidden>这些开关用于 Build 模式。完全体使用 DSH 的原生能力。</p>
+      <p id="capability-status" role="status">切换从下一回合生效，当前回合的配置保持不变。</p>
+      <div id="capability-cards" class="capability-grid"></div>
+      <h3>完全体专属</h3><div id="capability-exclusive" class="capability-grid"></div>
+    </dialog>
+    <dialog id="capability-onboarding" class="capability-onboarding" aria-labelledby="capability-onboarding-title">
+      <h2 id="capability-onboarding-title">从什么样的 Agent 开始？</h2>
+      <p>每次打开一项能力，都可以在 X 光里看到工具和提示词的变化。</p>
+      <button id="capability-choose-minimal" class="capability-choice" type="button"><strong>从最小开始（推荐）</strong><span>只开基础能力，然后一个个打开，看着你的 Agent 长大。</span></button>
+      <button id="capability-choose-all" class="capability-choice" type="button"><strong>全部打开</strong><span>直接使用九项扩展能力，以后可以随时关掉。</span></button>
+      <p id="capability-onboarding-error" role="alert"></p>
+    </dialog>
+
     <script src="./knowledge.js"></script>
     <script src="./xray-help.js"></script>
     <script src="./xray-inspect.js"></script>
     <script src="./xray.js"></script>
+    <script src="./capabilities.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

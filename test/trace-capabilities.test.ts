@@ -67,9 +67,9 @@ export default plugin;
 	app.ctx.on("piharness/trace", (notification) => { notifications.push(notification); void store.accept(notification); });
 	return {
 		app, workspace, notifications, store, root,
-		run: (prompt: string, recordRawRequests = true) => app.ctx.agents.run(prompt, {
+		run: (prompt: string, recordRawRequests = true, capabilities?: readonly string[]) => app.ctx.agents.run(prompt, {
 			connection: { provider: "faux", model: "faux-1", apiKey: secret },
-			workspacePath: workspace.dir, permissionMode: "bypass", edition: "full", recordRawRequests,
+			workspacePath: workspace.dir, permissionMode: "bypass", edition: "full", recordRawRequests, ...(capabilities === undefined ? {} : { capabilities }),
 		}),
 		turns: () => notifications.filter((item): item is Extract<TraceNotification, { type: "turn-end" }> => item.type === "turn-end").map((item) => item.turn),
 		close: async () => { await app.stop(); await store.flush(); await workspace.cleanup(); },
@@ -83,6 +83,19 @@ function ownUsage(turn: TraceTurn) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Pi 能力事件与父子回合", () => {
+	it("inherits the parent snapshot into child tools while forbidding further delegation", async () => {
+		const f = await fixture();
+		try {
+			await f.run("delegate", true, ["core", "web", "skills", "subagents", "workflow"]);
+			const child = f.turns().find((turn) => turn.parentTurnId)!;
+			expect(child.capabilities).toEqual(["core", "web", "skills"]);
+			const tools = child.events.find((event) => event.type === "llm.request")!.toolNames;
+			expect(tools).toEqual(expect.arrayContaining(["web_fetch", "skill_load", "skill_catalog"]));
+			expect(tools).not.toContain("delegate_task");
+			expect(tools).not.toContain("workflow_run");
+			expect(tools).not.toContain("todo_manage");
+		} finally { await f.close(); }
+	});
 	it("links parallel children to their own tool calls, persists their traces and keeps usage separate", async () => {
 		const f = await fixture();
 		try {
