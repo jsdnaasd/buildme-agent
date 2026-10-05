@@ -6,3 +6,4 @@ test-results/
 playwright-report/
 public/fonts/*.woff2
 public/fonts/*LICENSE*
+output/

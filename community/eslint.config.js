@@ -1,8 +1,25 @@
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
-import globals from 'globals';
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import globals from "globals";
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'public/fonts/**', 'test-results/**', 'playwright-report/**'] },
-  js.configs.recommended, ...tseslint.configs.recommended,
-  { languageOptions: { globals: {...globals.node, ...globals.browser} }, rules: {'@typescript-eslint/no-unused-vars': ['error', {argsIgnorePattern: '^_'}]} }
+  {
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "public/fonts/**",
+      "test-results/**",
+      "playwright-report/**",
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_" },
+      ],
+    },
+  },
 );

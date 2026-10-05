@@ -555,3 +555,17 @@ textarea.drag-over { background: var(--brand-soft); outline: 2px dashed var(--br
 label.field > span:first-child { color: var(--ink); font-size: 13px; font-weight: 600; }
 
 .preview-pane .preview-toc { position: static; margin-bottom: 20px; }
+
+/* Keep the reference palette while improving small coloured text contrast. */
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-built_in,
+.avatar.tone-0, .vote.on, .vote:has([aria-pressed='true']), .tag:has(input:checked) {
+  color: color-mix(in srgb, var(--brand) 75%, var(--ink));
+}
+.hljs-string, .hljs-regexp, .hljs-addition { color: color-mix(in srgb, var(--ok) 75%, var(--ink)); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .avatar.tone-3 { color: color-mix(in srgb, var(--warn) 75%, var(--ink)); }
+@media (width < 760px) {
+  .post-card { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .post-card > .post-main { grid-column: 1; grid-row: 1; }
+  .post-card > .vote { grid-column: 1; grid-row: 2; justify-self: start; min-height: 30px; padding: 3px 9px; }
+  .post-card > .vote button, .post-card > .vote > a { flex-direction: row; gap: 5px; }
+}
