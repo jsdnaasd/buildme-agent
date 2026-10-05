@@ -105,7 +105,7 @@ export function validatePost(db: Db, input: PostInput, draft = false) {
 }
 const select = `SELECT p.*,u.username,u.avatar_url,c.name category_name,c.color category_color,
  (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) vote_count,
- (SELECT COUNT(*) FROM replies r JOIN users ru ON ru.id=r.author_id WHERE r.post_id=p.id AND r.deleted=0 AND ru.banned=0) reply_count,
+ (SELECT COUNT(*) FROM replies r JOIN users ru ON ru.id=r.author_id WHERE r.post_id=p.id AND r.deleted=0 AND r.status='public' AND ru.banned=0) reply_count,
  (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id AND v.user_id=@viewer) voted FROM posts p JOIN users u ON u.id=p.author_id JOIN categories c ON c.id=p.category_id`;
 export function getPost(db: Db, id: number, viewer: User | null) {
   const post = db

@@ -10,6 +10,8 @@ import {
   type PostInput,
 } from "../lib/posts.js";
 import type { Heading } from "../lib/markdown.js";
+import type { Reply } from "../lib/interactions.js";
+import { ReplyCard, ReplyForm, Reactions, Bookmark } from "./interactions.js";
 import type { FormError } from "../lib/validation.js";
 export function relativeTime(at: number, now: number) {
   const mins = Math.max(0, Math.floor((now - at) / 60000));
@@ -26,6 +28,7 @@ export function Vote({ c, post }: { c: Context<Env>; post: Post }) {
   return (
     <form
       class={`vote ${post.voted ? "on" : ""}`}
+      data-interaction="vote"
       method="post"
       action={`/p/${post.id}/vote`}
     >
@@ -39,12 +42,12 @@ export function Vote({ c, post }: { c: Context<Env>; post: Post }) {
           disabled={user.id === post.author_id}
         >
           <Icon name="up" />
-          <b>{post.vote_count}</b>
+          <b data-count>{post.vote_count}</b>
         </button>
       ) : (
         <a href="/login" aria-label="登录后点赞">
           <Icon name="up" />
-          <b>{post.vote_count}</b>
+          <b data-count>{post.vote_count}</b>
         </a>
       )}
     </form>
@@ -96,6 +99,7 @@ export function PostCard({ c, post }: { c: Context<Env>; post: Post }) {
         </h2>
         <p class="excerpt">{post.excerpt}</p>
         <LinkCard post={post} />
+        <Reactions c={c} kind="post" id={post.id}/>
         <div class="post-actions">
           <a href={`/p/${post.id}#replies`}>
             <Icon name="chat" />
@@ -527,16 +531,6 @@ export function Latest({
     </Layout>
   );
 }
-export interface Reply {
-  id: number;
-  floor: number;
-  body: string;
-  html: string;
-  username: string;
-  avatar_url: string | null;
-  author_id: number;
-  created_at: number;
-}
 export function Detail({
   c,
   post,
@@ -544,12 +538,14 @@ export function Detail({
   page,
   total,
   clearDraft,
+  max,
 }: {
   c: Context<Env>;
   post: Post;
   replies: Reply[];
   page: number;
   total: number;
+  max: number;
   clearDraft?: string;
 }) {
   const user = c.get("user"),
@@ -599,6 +595,7 @@ export function Detail({
         </div>
         <div class="post-actions">
           <Vote c={c} post={post} />
+          <Bookmark c={c} post={post}/>
           <span>{post.views} 次浏览</span>
           {user && (user.id === post.author_id || user.role === "admin") && (
             <>
@@ -615,49 +612,26 @@ export function Detail({
             <a href={`/admin/posts/${post.id}/history`}>编辑历史</a>
           )}
         </div>
+        <Reactions c={c} kind="post" id={post.id}/>
       </article>
-      <section id="replies" class="reply-list">
+      <section id="replies" class="reply-list" data-discussion data-post-id={post.id} data-max-floor={max}>
         <div class="page-heading">
           <h2>{total} 条回复</h2>
         </div>
-        {replies.map((reply) => (
-          <article class="panel reply" id={String(reply.floor)}>
-            <header class="post-meta">
-              <Avatar user={reply} />
-              <strong>{reply.username}</strong>
-              {reply.author_id === post.author_id && (
-                <span class="tag">楼主</span>
-              )}
-              <a
-                href={`/p/${post.id}?page=${Math.ceil(reply.floor / 30)}#${reply.floor}`}
-              >
-                #{reply.floor}
-              </a>
-            </header>
-            <div
-              class="prose"
-              dangerouslySetInnerHTML={{ __html: reply.html }}
-            />
-          </article>
-        ))}
+        <p id="discussion-status" role="status"/>
+        <button id="reply-quote" class="button" type="button" hidden>引用</button>
+        {max>0 && <div class="floor-progress"><label>楼层 <span data-floor-position>{(page-1)*30+1} / {max}</span><input type="range" data-floor-slider min="1" max={max} value={(page-1)*30+1} aria-label="跳转楼层"/></label></div>}
+        <div id="reply-pages">{replies.map(reply=><ReplyCard c={c} post={post} reply={reply}/>)}</div>
         <nav class="form-actions">
           {page > 1 && (
             <a href={`/p/${post.id}?page=${page - 1}#replies`}>上一页</a>
           )}
-          {page * 30 < total && (
-            <a href={`/p/${post.id}?page=${page + 1}#replies`}>下一页</a>
+          {page * 30 < max && (
+            <a data-more-replies href={`/p/${post.id}?page=${page + 1}#replies`}>下一页</a>
           )}
         </nav>
         {user ? (
-          <form class="panel form" method="post" action={`/p/${post.id}/reply`}>
-            <Csrf value={c.get("csrf")} />
-            <Field label="回复 · Markdown" name="body">
-              <textarea name="body" rows={5} required />
-            </Field>
-            <button class="button primary" type="submit">
-              发布回复
-            </button>
-          </form>
+          <ReplyForm c={c} post={post} parentFloor={/^\d+$/.test(c.req.query("replyTo")??'')?c.req.query("replyTo"):''}/>
         ) : (
           <p class="panel">
             <a href="/login">登录后参与讨论</a>

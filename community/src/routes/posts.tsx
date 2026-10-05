@@ -2,12 +2,12 @@ import type { Hono, Context } from "hono";
 import type { Env, User } from "../types.js";
 import { Layout, Csrf, Empty, Avatar } from "../views/layout.js";
 import { pageProps } from "../views/forms.js";
+import { replyRows, maxFloor, notifyMentions } from "../lib/interactions.js";
 import {
   Latest,
   Editor,
   Detail,
   PostCard,
-  type Reply,
 } from "../views/posts.js";
 import { FormError, length, textField } from "../lib/validation.js";
 import { requireUser, requireAdmin } from "../lib/session.js";
@@ -24,7 +24,6 @@ import {
   latestPosts,
   checkPostingLimits,
   canWrite,
-  newAccount,
   type Post,
   type PostInput,
 } from "../lib/posts.js";
@@ -337,6 +336,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
             "DELETE FROM image_refs WHERE kind='draft' AND entity_id=?",
           ).run(values.draftId);
         }
+        if (!old) notifyMentions(db, values.body, user.id, id, 0, now);
         return id;
       })();
       const editorId = /^(new|post-\d+|draft-\d+)$/.test(values.editorId)
@@ -366,11 +366,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
     db.prepare("UPDATE posts SET views=views+1 WHERE id=?").run(post.id);
     post.views++;
     const page = positivePage(c.req.query("page"));
-    const replies = db
-      .prepare(
-        "SELECT r.*,u.username,u.avatar_url FROM replies r JOIN users u ON u.id=r.author_id WHERE r.post_id=? AND r.deleted=0 AND u.banned=0 ORDER BY r.floor LIMIT 30 OFFSET ?",
-      )
-      .all(post.id, (page - 1) * 30) as Reply[];
+    const replies = replyRows(db, post.id, (page - 1) * 30 + 1);
     const key = c.req.query("published");
     const clearDraft =
       c.get("user")?.id === post.author_id &&
@@ -385,6 +381,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         replies={replies}
         page={page}
         total={post.reply_count}
+        max={maxFloor(db, post.id)}
         clearDraft={clearDraft}
       />,
     );
@@ -565,73 +562,6 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         ).run(c.req.param("id"));
     })();
     return c.redirect("/drafts", 303);
-  });
-  app.post("/p/:id/reply", async (c) => {
-    const user = requireUser(c),
-      db = c.get("db"),
-      post = getPost(db, Number(c.req.param("id")), user),
-      body = textField(await c.req.formData(), "body"),
-      now = c.get("now");
-    canWrite(user, now);
-    if (!body.trim() || length(body) > 10000)
-      throw new FormError("回复需为 1–10,000 字");
-    limit(
-      db,
-      "reply",
-      String(user.id),
-      newAccount(db, user, now) ? 3 : 6,
-      60000,
-      now,
-    );
-    const rendered = renderMarkdown(db, body, c.get("config").siteUrl);
-    const floor = db.transaction(() => {
-      const row = db
-        .prepare(
-          "SELECT COALESCE(MAX(floor),0)+1 n FROM replies WHERE post_id=?",
-        )
-        .get(post.id) as { n: number };
-      const result = db
-        .prepare(
-          "INSERT INTO replies(post_id,author_id,floor,body,html,created_at) VALUES (?,?,?,?,?,?)",
-        )
-        .run(post.id, user.id, row.n, body, rendered.html, now);
-      referenceImages(
-        db,
-        "reply",
-        Number(result.lastInsertRowid),
-        rendered.imageIds,
-      );
-      db.prepare("UPDATE posts SET last_activity=? WHERE id=?").run(
-        now,
-        post.id,
-      );
-      return row.n;
-    })();
-    return c.redirect(
-      `/p/${post.id}?page=${Math.ceil(floor / 30)}#${floor}`,
-      303,
-    );
-  });
-  app.post("/p/:id/vote", async (c) => {
-    const user = requireUser(c),
-      db = c.get("db"),
-      post = getPost(db, Number(c.req.param("id")), user);
-    if (post.author_id === user.id) throw new FormError("不能给自己的帖子点赞");
-    limit(db, "reaction", String(user.id), 60, 60000, c.get("now"));
-    const active = textField(await c.req.formData(), "active");
-    if (!["0", "1"].includes(active)) throw new FormError("点赞操作无效");
-    if (active === "1")
-      db.prepare("INSERT OR IGNORE INTO votes VALUES (?,?,?)").run(
-        post.id,
-        user.id,
-        c.get("now"),
-      );
-    else
-      db.prepare("DELETE FROM votes WHERE post_id=? AND user_id=?").run(
-        post.id,
-        user.id,
-      );
-    return c.redirect(`/p/${post.id}`, 303);
   });
   app.post("/tags/request", async (c) => {
     const user = requireUser(c),

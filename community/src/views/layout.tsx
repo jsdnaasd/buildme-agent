@@ -19,6 +19,7 @@ export interface PageProps {
   editor?: boolean;
   notice?: string;
   imageOrigin?: string;
+  unread?: number;
 }
 export function Icon({ name }: { name: string }) {
   return (
@@ -43,13 +44,14 @@ export function Layout(p: PageProps) {
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>{p.title} · BuildMe 社区</title>
+          <title>{p.unread ? `(${p.unread}) ` : ""}{p.title} · BuildMe 社区</title>
           <meta
             name="description"
             content="分享发现，讨论 Agent，记录每一次动手的经验。"
           />
           <link rel="stylesheet" href={asset("site.css")} />
           <script src={asset("site.js")} defer />
+          <script src={asset("interactions.js")} defer />
           {p.editor && <script src={asset("editor.js")} defer />}
         </head>
         <body class={p.embed ? "is-embed" : ""}>
@@ -108,6 +110,8 @@ export function Layout(p: PageProps) {
                       <a href="/new" class="button primary">
                         写长文
                       </a>
+                      <a href="/notifications" aria-label="通知">通知 <span data-unread-count hidden={!p.unread}>{p.unread || ""}</span></a>
+                      <a href="/bookmarks">收藏</a>
                       <a href="/settings" class="account-link">
                         {p.user.username}
                       </a>

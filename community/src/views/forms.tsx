@@ -2,10 +2,12 @@ import type { Child } from "hono/jsx";
 import type { Context } from "hono";
 import type { Env } from "../types.js";
 import { Layout, Csrf } from "./layout.js";
+import { unreadCount } from "../lib/interactions.js";
 import { FormError } from "../lib/validation.js";
 export function pageProps(c: Context<Env>, title: string) {
   return {
     title,
+    unread: unreadCount(c.get("db"), c.get("user")),
     path: c.req.path,
     user: c.get("user"),
     csrf: c.get("csrf"),
