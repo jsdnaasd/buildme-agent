@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
+import { ACHIEVEMENTS, AchievementEngine } from "../src/core/achievements.ts";
 import { CapabilityUsageStore } from "../src/core/capability-usage.ts";
 import { CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability } from "../src/core/capabilities.ts";
 import { TraceStore } from "../src/core/trace-store.ts";
@@ -22,7 +23,7 @@ const ipcHandlers = new Map();
 const runtimeListeners = new Map();
 const windows = [];
 const nativeTheme = { themeSource: "system" };
-const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) };
+const dialog = { showSaveDialog: vi.fn(async () => ({ canceled: false, filePath: join(appData, "learning-export.json") })), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) };
 const clipboard = { readText: vi.fn(() => "clipboard-key"), writeText: vi.fn() };
 const shell = { openExternal: vi.fn(async () => ""), openPath: vi.fn(async () => "") };
 const safeStorage = {
@@ -141,7 +142,7 @@ beforeAll(async () => {
     applyProxyFromEnv: vi.fn(() => false),
     hasProxyEnv: vi.fn(() => false),
     proxyUrlFromPac: vi.fn(() => undefined),
-    createApp, TraceStore, redactTrace, CapabilityUsageStore, CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability,
+    createApp, TraceStore, redactTrace, CapabilityUsageStore, AchievementEngine, ACHIEVEMENTS, CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability,
     initProfile: vi.fn(async (path) => path),
     loadProfile: vi.fn(async () => ({ profile: { settings: { name: "BuildMe" } } })),
   }));
@@ -371,9 +372,45 @@ describe("Desktop main-process state", () => {
 
   it("auto-approves core requests in bypass mode without notifying the renderer", async () => {
     await ipcHandlers.get("desktop:set-permission-mode")(undefined, "bypass");
+    await ipcHandlers.get("desktop:achievements")();
     const sends = windows[0].webContents.send.mock.calls.length;
     await expect(runtimeListeners.get("piharness/tool-approval-request")({ toolName: "shell" })).resolves.toBe(true);
     expect(windows[0].webContents.send.mock.calls).toHaveLength(sends);
+  });
+
+  it("keeps cancellation and approval timeout distinct from a user denial", async () => {
+    await ipcHandlers.get("desktop:set-permission-mode")(undefined, "ask");
+    const request = runtimeListeners.get("piharness/tool-approval-request");
+    const cancelled = request({ requestId: "cancelled-test", sessionId: "session-to-cancel", toolName: "bash", permissionMode: "ask" });
+    await vi.waitFor(() => expect(windows[0].webContents.send).toHaveBeenCalledWith("desktop:approval", expect.objectContaining({ requestId: "cancelled-test" })));
+    await ipcHandlers.get("desktop:abort")(undefined, "session-to-cancel");
+    await expect(cancelled).resolves.toEqual({ decision: "cancelled" });
+    vi.useFakeTimers();
+    try {
+      const expired = request({ requestId: "timeout-test", sessionId: "session-timeout", toolName: "bash", permissionMode: "ask" });
+      await vi.waitFor(() => expect(windows[0].webContents.send).toHaveBeenCalledWith("desktop:approval", expect.objectContaining({ requestId: "timeout-test" })));
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      await expect(expired).resolves.toEqual({ decision: "timeout" });
+      expect(ipcHandlers.get("desktop:approval-response")(undefined, "timeout-test", false)).toEqual({ accepted: false });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("validates UI learning events and exports only achievements, capabilities and counters", async () => {
+    const event = ipcHandlers.get("desktop:learning-event");
+    await expect(event(undefined, { id: "view", type: "compare-completed" })).rejects.toThrow("类型不正确");
+    await expect(event(undefined, { id: "view", type: "xray-tab", tab: "invalid" })).rejects.toThrow("标签不正确");
+    await event(undefined, { id: "view", type: "xray-opened" });
+    await event(undefined, { id: "view", type: "xray-opened" });
+    const exported = await ipcHandlers.get("desktop:export-learning")();
+    const data = JSON.parse(readFileSync(exported.path, "utf8"));
+    expect(Object.keys(data).sort()).toEqual(["achievements", "capabilities", "counters"]);
+    expect(data.counters.xrayOpened).toBe(1);
+    expect(JSON.stringify(data)).not.toContain("proxy-secret");
+    const state = await ipcHandlers.get("desktop:achievements")();
+    expect(state.definitions).toHaveLength(30);
+    vi.spyOn(AchievementEngine.prototype, "accept").mockRejectedValueOnce(new Error("storage failed"));
+    await expect(event(undefined, { id: "failed-event", type: "xray-opened" })).resolves.toEqual({ accepted: false });
+    vi.restoreAllMocks();
   });
 
   it("does not fall back to plaintext when the OS key store is unavailable", async () => {

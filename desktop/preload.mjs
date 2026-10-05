@@ -9,6 +9,14 @@ contextBridge.exposeInMainWorld("personalAgent", {
     ipcRenderer.on("desktop:capability-usage", handler);
     return () => ipcRenderer.removeListener("desktop:capability-usage", handler);
   },
+  achievements: () => ipcRenderer.invoke("desktop:achievements"),
+  learningEvent: (event) => ipcRenderer.invoke("desktop:learning-event", event),
+  exportLearning: () => ipcRenderer.invoke("desktop:export-learning"),
+  onAchievements: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("desktop:achievements", handler);
+    return () => ipcRenderer.removeListener("desktop:achievements", handler);
+  },
   catalog: () => ipcRenderer.invoke("desktop:catalog"),
   sessions: () => ipcRenderer.invoke("desktop:sessions"),
   messages: (sessionId) => ipcRenderer.invoke("desktop:messages", sessionId),
@@ -41,6 +49,11 @@ contextBridge.exposeInMainWorld("personalAgent", {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on("desktop:stream", handler);
     return () => ipcRenderer.removeListener("desktop:stream", handler);
+  },
+  onApprovalClosed: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on("desktop:approval-closed", handler);
+    return () => ipcRenderer.removeListener("desktop:approval-closed", handler);
   },
   onApproval: (listener) => {
     const handler = (_event, payload) => listener(payload);

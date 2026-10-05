@@ -16,3 +16,4 @@ export {
 } from "./profile.js";
 
 export * from "./core/capability-usage.js";
+export * from "./core/achievements.js";

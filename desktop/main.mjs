@@ -7,7 +7,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Noti
 
 import { applyProxyFromEnv, createApp, hasProxyEnv, initProfile, loadProfile, proxyUrlFromPac } from "../dist/index.js";
 import { ACTIVE_API_KEY_ENV, DshEngine, dshRoute, fullEditionPrompt } from "./dsh-engine.mjs";
-import { CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability, CapabilityUsageStore, TraceStore, redactTrace } from "../dist/index.js";
+import { ACHIEVEMENTS, AchievementEngine, CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability, CapabilityUsageStore, TraceStore, redactTrace } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_NAME = "BuildMe";
@@ -80,6 +80,8 @@ let stopApprovals;
 let stopTrace;
 let traceStore;
 let capabilityUsage;
+let achievementEngine;
+let learningPending = Promise.resolve();
 let quitting = false;
 let profilePathPromise;
 const pendingApprovals = new Map();
@@ -104,6 +106,28 @@ function getTraceStore() {
 function getCapabilityUsage() {
   capabilityUsage ??= new CapabilityUsageStore(appDataPath("capability-usage.json"));
   return capabilityUsage;
+}
+
+function getAchievements() {
+  achievementEngine ??= new AchievementEngine(appDataPath("achievements.json"), getCapabilityUsage());
+  return achievementEngine;
+}
+
+function recordLearning(input) {
+  const operation = learningPending.then(async () => {
+    try {
+      const config = await getConfig();
+      const unlocks = await getAchievements().accept(input, config.capabilities ?? ["core"]);
+      if (unlocks.length) sendToWindow("desktop:achievements", unlocks);
+      if (input.type === "turn" && input.turn.engine === "pi") sendToWindow("desktop:capability-usage", await getCapabilityUsage().counts());
+      return { accepted: true };
+    } catch {
+      console.warn("[成就] 本次学习事件未能保存，正常对话不受影响。");
+      return { accepted: false };
+    }
+  });
+  learningPending = operation.then(() => undefined);
+  return operation;
 }
 
 async function capabilityState(config) {
@@ -356,23 +380,24 @@ function settleApproval(requestId, allow) {
   pendingApprovals.delete(requestId);
   clearTimeout(pending.timer);
   pending.resolve(allow);
+  sendToWindow("desktop:approval-closed", { requestId });
   return true;
 }
 
 function settleAllApprovals() {
-  for (const requestId of [...pendingApprovals.keys()]) settleApproval(requestId, false);
+  for (const requestId of [...pendingApprovals.keys()]) settleApproval(requestId, { decision: "cancelled" });
 }
 
 async function requestToolApproval(request) {
   const config = await getConfig();
-  if (config.permissionMode === "bypass") return true;
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if ((request.permissionMode ?? config.permissionMode) === "bypass") return true;
+  if (!mainWindow || mainWindow.isDestroyed()) return { decision: "cancelled" };
   const requestId = optionalString(request?.requestId) ?? randomUUID();
-  if (pendingApprovals.has(requestId)) settleApproval(requestId, false);
+  if (pendingApprovals.has(requestId)) settleApproval(requestId, { decision: "cancelled" });
   return new Promise((resolveApproval) => {
-    const timer = setTimeout(() => settleApproval(requestId, false), APPROVAL_TIMEOUT_MS);
+    const timer = setTimeout(() => settleApproval(requestId, { decision: "timeout" }), APPROVAL_TIMEOUT_MS);
     timer.unref?.();
-    pendingApprovals.set(requestId, { resolve: resolveApproval, timer });
+    pendingApprovals.set(requestId, { resolve: resolveApproval, timer, sessionId: request.sessionId, turnId: request.turnId });
     mainWindow.webContents.send("desktop:approval", approvalPayload(request, requestId));
   });
 }
@@ -575,11 +600,7 @@ function ensureHarness() {
       try {
         const safe = redactTrace(notification);
         void getTraceStore().accept(safe);
-        if (safe.type === "turn-end" && safe.turn.engine === "pi") {
-          void getCapabilityUsage().accept(safe.turn).then(async () => {
-            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:capability-usage", await getCapabilityUsage().counts());
-          }).catch(() => console.warn("[能力] 本回合使用次数未能保存。"));
-        }
+        if (safe.type === "turn-end") void recordLearning({ type: "turn", turn: safe.turn });
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
       } catch {
         console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
@@ -879,6 +900,25 @@ function createWindow() {
 }
 
 ipcMain.handle("desktop:state", () => desktopState());
+ipcMain.handle("desktop:achievements", async () => {
+  await learningPending;
+  return { ...await getAchievements().snapshot((await getConfig()).capabilities ?? ["core"]), definitions: ACHIEVEMENTS };
+});
+ipcMain.handle("desktop:learning-event", async (_event, payload) => {
+  if (!payload || !["xray-opened", "xray-tab", "explain-clicked"].includes(payload.type)) throw new Error("学习事件类型不正确。");
+  const id = requiredConnectionField(payload.id, "事件标识", 128);
+  const turnId = payload.turnId === undefined ? undefined : requireSessionId(payload.turnId);
+  if (payload.type === "xray-tab" && !["prompt", "raw"].includes(payload.tab)) throw new Error("X 光标签不正确。");
+  return recordLearning({ id, at: new Date().toISOString(), type: payload.type, ...(turnId ? { turnId } : {}), ...(payload.type === "xray-tab" ? { tab: payload.tab } : {}) });
+});
+ipcMain.handle("desktop:export-learning", async () => {
+  await learningPending;
+  const data = await getAchievements().snapshot((await getConfig()).capabilities ?? ["core"]);
+  const destination = await dialog.showSaveDialog(mainWindow, { title: "导出学习记录", defaultPath: "buildme-learning.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (destination.canceled || !destination.filePath) return { cancelled: true };
+  await writeFile(destination.filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+  return { cancelled: false, path: destination.filePath };
+});
 ipcMain.handle("desktop:catalog", async () => {
   const runtime = await ensureHarness();
   const llm = findRuntimeService(runtime, "llm");
@@ -931,11 +971,14 @@ ipcMain.handle("desktop:set-capability", async (_event, id, enabled) => {
   const config = await getConfig();
   const capabilities = toggleCapability(config.capabilities ?? ["core"], id, enabled);
   const saved = await saveConfig({ ...config, capabilities });
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "capability-toggled", capabilities, enabledIds: capabilities.filter((id) => !(config.capabilities ?? ["core"]).includes(id)) });
   return capabilityState(saved);
 });
 ipcMain.handle("desktop:choose-capabilities", async (_event, choice) => {
   if (choice !== "minimal" && choice !== "all") throw new Error("请选择最小能力或全部能力。");
-  const saved = await saveConfig({ ...await getConfig(), capabilities: choice === "all" ? ALL_CAPABILITIES : ["core"] });
+  const config = await getConfig();
+  const saved = await saveConfig({ ...config, capabilities: choice === "all" ? ALL_CAPABILITIES : ["core"] });
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "capability-toggled", capabilities: saved.capabilities, enabledIds: saved.capabilities.filter((id) => !(config.capabilities ?? ["core"]).includes(id)) });
   return capabilityState(saved);
 });
 ipcMain.handle("desktop:send", async (_event, payload) => {
@@ -968,6 +1011,7 @@ ipcMain.handle("desktop:send", async (_event, payload) => {
     });
   } finally {
     await traceStore?.flush();
+    await learningPending;
   }
 });
 ipcMain.handle("desktop:abort", async (_event, sessionId) => {
@@ -975,11 +1019,13 @@ ipcMain.handle("desktop:abort", async (_event, sessionId) => {
   if ((await getConfig()).edition === "full") {
     const target = requestedSession ?? activeFullSessionId;
     if (!dshEngine || !target) return { cancelled: false };
+    for (const [id, pending] of pendingApprovals) if (pending.sessionId === target) settleApproval(id, { decision: "cancelled" });
     return dshEngine.request("session/cancel", { sessionId: target });
   }
   const agents = await requireRuntimeService("agents");
   const activeSession = requestedSession
     ?? agents.list().find((agent) => agent.status === "busy")?.id;
+  for (const [id, pending] of pendingApprovals) if (pending.sessionId === activeSession) settleApproval(id, { decision: "cancelled" });
   return agents.abort(activeSession);
 });
 ipcMain.handle("desktop:save-connection", (_event, payload) => saveConnection(payload));
@@ -993,7 +1039,10 @@ ipcMain.handle("desktop:set-edition", (_event, edition) => setEdition(edition));
 ipcMain.handle("desktop:approval-response", (_event, requestId, allow) => {
   const id = requiredConnectionField(requestId, "审批请求标识", 128);
   if (typeof allow !== "boolean") throw new Error("审批结果格式不正确。");
-  return { accepted: settleApproval(id, allow) };
+  const pending = pendingApprovals.get(id);
+  const accepted = settleApproval(id, allow);
+  if (accepted) void recordLearning({ id: `approval:${id}`, at: new Date().toISOString(), type: "approval-answered", decision: allow ? "allow" : "deny", ...(pending.turnId ? { turnId: pending.turnId } : {}) });
+  return { accepted };
 });
 ipcMain.handle("desktop:read-clipboard-text", () => clipboard.readText());
 ipcMain.handle("desktop:write-clipboard-text", (_event, text) => {
@@ -1098,6 +1147,7 @@ app.on("before-quit", (event) => {
       await Promise.allSettled([(harnessApp ?? await pendingHarness)?.stop(), stopDshEngine()]);
       stopTrace?.();
       await traceStore?.flush();
+      await learningPending;
     })
     .catch((error) => console.error(`Agent 退出清理失败：${error instanceof Error ? error.message : String(error)}`))
     .finally(() => app.quit());

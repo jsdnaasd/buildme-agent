@@ -34,6 +34,7 @@
         </section>
 
         <footer class="sidebar-footer">
+          <button id="achievements" class="sidebar-action" type="button"><span aria-hidden="true">🏅</span><span>成就</span></button>
           <button id="my-agent" class="sidebar-action" type="button"><span aria-hidden="true">🧩</span><span>我的 Agent</span></button>
           <button id="settings" class="sidebar-action" type="button">
             <span class="sidebar-action-icon" aria-hidden="true">⌘</span><span>模型与偏好</span><kbd>⌘,</kbd>
@@ -210,6 +211,13 @@
       </section>
     </dialog>
 
+    <aside id="achievement-toast" class="achievement-toast" role="status" aria-live="polite" hidden></aside>
+    <dialog id="achievements-dialog" class="achievements-dialog" aria-labelledby="achievement-title">
+      <header><div><h2 id="achievement-title">你的探索足迹</h2><p id="achievement-count">已解锁 0 / 30</p></div><button id="achievement-close" class="icon-button" type="button" aria-label="关闭成就页">×</button></header>
+      <p id="achievement-status" role="status">学习记录只保存在本地。</p>
+      <div id="achievement-grid" class="achievement-grid"></div>
+      <footer><button id="achievement-export" class="secondary-button" type="button">导出学习记录</button><small>仅成就、能力状态和计数器；不含聊天与 Trace。</small></footer>
+    </dialog>
     <dialog id="capabilities-dialog" class="capabilities-dialog" aria-labelledby="capability-title">
       <header><div><h2 id="capability-title">我的 Agent</h2><p>一点点增加能力，在 X 光里看见变化。</p></div><button id="capability-close" class="icon-button" type="button" aria-label="关闭能力面板">×</button></header>
       <section class="capability-progress"><strong id="capability-progress-label"></strong><progress id="capability-progress" max="9" value="0"></progress><p id="capability-remaining"></p></section>
@@ -231,6 +239,7 @@
     <script src="./xray-inspect.js"></script>
     <script src="./xray.js"></script>
     <script src="./capabilities.js"></script>
+    <script src="./achievements.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

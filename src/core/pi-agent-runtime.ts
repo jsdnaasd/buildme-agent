@@ -396,6 +396,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 					const decision = await this.ctx.tools.authorize(
 						{
 							sessionId,
+							...(trace ? { turnId: trace.id } : {}),
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: redactDurable(args, [requestApiKey]),
@@ -406,7 +407,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 					);
 					traceAttempt(() => trace?.event({
 						type: "tool.approval", toolCallId: toolCall.id, permissionMode,
-						decision: decision.allow ? (decision.source === "user" ? "user-allow" : "auto-allow") : (decision.source === "user" ? "user-deny" : "policy-deny"),
+						decision: decision.allow ? (decision.source === "user" ? "user-allow" : "auto-allow") : (decision.source === "cancelled" || decision.source === "timeout" ? decision.source : decision.source === "user" ? "user-deny" : "policy-deny"),
 						...(!decision.allow ? { reason: decision.reason } : {}),
 					}));
 					if (decision.allow) return undefined;

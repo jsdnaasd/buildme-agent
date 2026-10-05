@@ -27,6 +27,15 @@ function namedTool(ctx: Context, name: string, scope: ToolExecutionScope): Agent
 }
 
 describe("Pi workspace tools and permission plugin", () => {
+	it.each(["cancelled", "timeout"] as const)("preserves the %s approval outcome without granting access", async (decision) => {
+		const fixture = await tempWorkspace(); const ctx = await setup();
+		const off = ctx.on("piharness/tool-approval-request", () => ({ decision }));
+		try {
+			const result = await ctx.tools.authorize({ sessionId: "s", toolCallId: "t", toolName: "bash", args: { command: "true" }, workspacePath: fixture.dir, permissionMode: "ask" });
+			expect(result).toMatchObject({ allow: false, source: decision });
+		} finally { off(); await ctx.fiber.dispose(); await fixture.cleanup(); }
+	});
+
 	it("executes a Pi-native write through the complete DSH AgentFactory and approval path", async () => {
 		const fixture = await tempWorkspace();
 		try {

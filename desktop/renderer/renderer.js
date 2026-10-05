@@ -83,6 +83,7 @@ let currentApproval;
 const approvalQueue = [];
 const xray = window.createXray(api);
 let sessionSelection = 0;
+window.createAchievements(api, { onTurn: (turn) => xray.openTurn(turn) });
 const capabilities = window.createCapabilities(api, {
   onChange: mergeState,
   onExample: (text) => { elements.prompt.value = text; autoSizePrompt(); elements.prompt.focus(); },
@@ -814,6 +815,12 @@ api.onStream((event) => {
 if (typeof api.onApproval === "function" && typeof api.respondApproval === "function") {
   api.onApproval((request) => { approvalQueue.push(request); showNextApproval(); });
 }
+
+if (api.onApprovalClosed) api.onApprovalClosed(({ requestId }) => {
+  const index = approvalQueue.findIndex((request) => request.requestId === requestId);
+  if (index >= 0) approvalQueue.splice(index, 1);
+  if (currentApproval?.requestId === requestId) { currentApproval = undefined; elements.approvalDialog.close(); showNextApproval(); }
+});
 
 (async () => {
   try {

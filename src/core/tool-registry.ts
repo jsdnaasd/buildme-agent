@@ -85,7 +85,7 @@ export class ToolRegistry extends Service {
 		let source: "user" | undefined;
 		for (const gate of this.gates.values()) {
 			if (signal?.aborted) {
-				const aborted: ToolGateDecision = { allow: false, reason: "Tool request was aborted.", terminate: true };
+				const aborted: ToolGateDecision = { allow: false, reason: "Tool request was aborted.", terminate: true, source: "cancelled" };
 				this.ctx.emit("piharness/tool-authorized", request, aborted);
 				return aborted;
 			}

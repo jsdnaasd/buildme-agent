@@ -6,7 +6,7 @@
 
 ## 已核实
 
-1. **审批来源会丢失**：`ToolRegistry.authorize()` 原来在所有 gate 通过后统一返回 `{ allow: true }`。本轮在决策中增加可选 `source`，保留交互审批来源，权限规则不变。没有响应或取消不能算主动拒绝；桌面审批超时当前仍以 false 返回，与主动拒绝的进一步区分需后续补齐。
+1. **审批来源会丢失**：`ToolRegistry.authorize()` 原来在所有 gate 通过后统一返回 `{ allow: true }`。本轮在决策中增加可选 `source`，保留交互审批来源，权限规则不变。没有响应或取消不能算主动拒绝；M3 已区分 cancelled / timeout，与明确 user-deny 分开记录，取消和超时不会解锁「说不」。
 2. **动态提示词不能渲染两次**：section 的 text 可以是函数。本轮新增一次性 `renderSections()`，运行时直接拼接这份快照，Trace 使用同一份文本。
 3. **原始请求的层级**：`resolved.stream` 接收 Pi 标准 context 和 options。不同 provider 之后还会转换为各自协议。本轮记录标注 `format: "pi-context"`，不称为最终 HTTP 请求；`rawTruncated` 明确标出内容省略。若后续需要线路级请求，另接 provider 的 payload 回调并验证覆盖范围。
 4. **数值 token 字段不应全部隐藏**：PRD 的字段名匹配包含 token，会误伤 `inputTokens` 等统计。本轮仅对明确列出的数值计数/模型上限字段保留数值，密钥、令牌等字段继续隐藏，否则 X 光与对比的数字无法使用。
@@ -21,7 +21,12 @@
 
 ## 第二轮补充
 
-- 现有 Skill 只从工作区和用户的 `.buildme/skills` 发现，没有随 App 分发的 Skill 根目录，因此当前加载事件的 `builtin` 如实记为 false。这不证明 Skill 是用户亲自创作；M3 的“造技能的人”文案/判定需要明确这个限制。
+- 现有 Skill 只从工作区和用户的 `.buildme/skills` 发现，没有随 App 分发的 Skill 根目录，因此当前加载事件的 `builtin` 如实记为 false。这不证明 Skill 是用户亲自创作；M3 已按用户批准改名「自定义技能」，保留 skill-author ID，仅表达成功加载非内置 Skill。
 - 工作流仍保持原有顺序执行、任一步失败立即结束的语义。事件中的 `stepIndex` 从 1 开始，用 `toolCallId` 区分同一回合中并行的多条工作流；每一步产生独立子 Trace。
 - 父回合的 usage 只统计自己的模型请求，子回合统计子请求，避免重复累加。后续展示整个任务树的总消耗时，应显式遍历父子关联汇总。
 - 本轮没有新增模型协议、没有把子任务内容塞入父模型上下文，也没有改变子 Agent 默认使用 standard 工具集的行为。
+
+## M2 / M3 后续约定
+
+- 显式能力配置下，子 Agent 继承父快照但去掉 subagents 和 workflow；不传配置的旧调用继续原 edition 行为。
+- 自动化测试使用 faux provider。真实模型验收按用户 2026-10-05 的补充要求复用已有 DeepSeek 连接/密钥，不记录或展示密钥。

@@ -89,12 +89,12 @@ function approvalWithAbort(
 	ctx: import("@deepseek-ai/cordis").Context,
 	request: ToolCallRequest,
 	signal?: AbortSignal,
-): Promise<boolean | undefined> {
-	if (signal?.aborted) return Promise.resolve(undefined);
+): Promise<import("../contracts.js").ToolApprovalResponse | undefined> {
+	if (signal?.aborted) return Promise.resolve({ decision: "cancelled" });
 	const pending = ctx.serial("piharness/tool-approval-request", request);
 	if (!signal) return pending;
-	return new Promise<boolean | undefined>((resolveApproval) => {
-		const onAbort = (): void => resolveApproval(undefined);
+	return new Promise<import("../contracts.js").ToolApprovalResponse | undefined>((resolveApproval) => {
+		const onAbort = (): void => resolveApproval({ decision: "cancelled" });
 		signal.addEventListener("abort", onAbort, { once: true });
 		void pending.then(
 			(approved) => {
@@ -201,18 +201,18 @@ export const permissionModePolicy = definePlugin(
 					};
 				}
 				const approved = await approvalWithAbort(ctx, request, signal);
-				return approved
+				return approved === true
 					? { allow: true, source: "user" }
-					: { allow: false, source: approved === false ? "user" : "policy", reason: `Approval was not granted for path: ${boundary.requested}` };
+					: { allow: false, source: approved === false ? "user" : typeof approved === "object" ? approved.decision : "policy", reason: `Approval was not granted for path: ${boundary.requested}` };
 			}
 
 			if (isReadOnlyRequest(request)) return { allow: true };
 			if (mode === "workspace-write" && request.toolName !== "bash") return { allow: true };
 
 			const approved = await approvalWithAbort(ctx, request, signal);
-			return approved
+			return approved === true
 				? { allow: true, source: "user" }
-				: { allow: false, source: approved === false ? "user" : "policy", reason: `Approval was not granted for tool: ${request.toolName}` };
+				: { allow: false, source: approved === false ? "user" : typeof approved === "object" ? approved.decision : "policy", reason: `Approval was not granted for tool: ${request.toolName}` };
 		}),
 );
 

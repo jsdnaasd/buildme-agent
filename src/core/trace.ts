@@ -61,7 +61,7 @@ export type TraceEvent =
 	| { type: "tool.call"; id: string; at: string; round: number; toolCallId: string;
 	    name: string; args: unknown; capabilityId?: string; parallelGroup?: number }
 	| { type: "tool.approval"; id: string; at: string; toolCallId: string;
-	    decision: "auto-allow" | "user-allow" | "user-deny" | "policy-deny";
+	    decision: "auto-allow" | "user-allow" | "user-deny" | "policy-deny" | "cancelled" | "timeout";
 	    permissionMode: string; reason?: string }
 	| { type: "tool.result"; id: string; at: string; toolCallId: string; durationMs: number;
 	    isError: boolean; resultPreview: string; resultBytes: number; truncated: boolean; result?: string }

@@ -136,12 +136,12 @@ describe("Pi X 光执行链", () => {
 		} finally { await f.close(); }
 	});
 
-	it.each(["user", "policy"] as const)("preserves %s denial without executing the tool", async (source) => {
+	it.each(["user", "policy", "cancelled", "timeout"] as const)("preserves %s denial without executing the tool", async (source) => {
 		const f = await fixture();
 		try {
 			f.app.ctx.tools.useGate(() => ({ allow: false, source, reason: "denied" }));
 			await f.run();
-			expect(f.turn().events.filter((e) => e.type === "tool.approval").map((e) => e.decision)).toEqual([`${source}-deny`, `${source}-deny`]);
+			expect(f.turn().events.filter((e) => e.type === "tool.approval").map((e) => e.decision)).toEqual(source === "cancelled" || source === "timeout" ? [source, source] : [`${source}-deny`, `${source}-deny`]);
 			expect(f.turn().events.filter((e) => e.type === "tool.result").every((e) => e.isError)).toBe(true);
 		} finally { await f.close(); }
 	});

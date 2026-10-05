@@ -191,6 +191,7 @@ export interface PluginDiagnostic {
 }
 
 export interface ToolCallRequest {
+	readonly turnId?: string;
 	readonly sessionId: string;
 	readonly toolCallId: string;
 	readonly toolName: string;
@@ -199,9 +200,11 @@ export interface ToolCallRequest {
 	readonly permissionMode?: AgentPermissionMode;
 }
 
+export type ToolApprovalResponse = boolean | { readonly decision: "cancelled" | "timeout" };
+
 export type ToolGateDecision =
 	| { readonly allow: true; readonly source?: "user" | "policy" }
-	| { readonly allow: false; readonly reason: string; readonly terminate?: boolean; readonly source?: "user" | "policy" };
+	| { readonly allow: false; readonly reason: string; readonly terminate?: boolean; readonly source?: "user" | "policy" | "cancelled" | "timeout" };
 
 export type ToolGate = (request: ToolCallRequest, signal?: AbortSignal) => ToolGateDecision | Promise<ToolGateDecision>;
 
@@ -228,7 +231,7 @@ declare module "@deepseek-ai/cordis" {
 		/** A permission policy requests one interactive decision. First affirmative listener wins. @mode serial */
 		"piharness/tool-approval-request"(
 			request: ToolCallRequest,
-		): boolean | undefined | Promise<boolean | undefined>;
+		): ToolApprovalResponse | undefined | Promise<ToolApprovalResponse | undefined>;
 		/** A Pi run has completed. @mode emit */
 		"piharness/run-completed"(result: AgentRunResult): void;
 	}

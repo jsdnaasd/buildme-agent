@@ -43,6 +43,7 @@
         body.append(dismiss);
         wrapper.append(body);
       }
+      window.recordLearningEvent?.("explain-clicked", { turnId: wrapper.closest("[data-turn-id]")?.dataset.turnId });
       body.hidden = false;
       button.setAttribute("aria-expanded", "true");
       body.scrollIntoView({ block: "nearest" });

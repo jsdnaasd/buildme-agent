@@ -1,6 +1,6 @@
 (() => {
   const STATUS = { running: "进行中", done: "已完成", error: "出错了", aborted: "已取消" };
-  const APPROVAL = { "auto-allow": "自动放行", "user-allow": "你允许了", "user-deny": "你拒绝了", "policy-deny": "策略拒绝" };
+  const APPROVAL = { "auto-allow": "自动放行", "user-allow": "你允许了", "user-deny": "你拒绝了", "policy-deny": "策略拒绝", cancelled: "已取消", timeout: "审批超时" };
   const PERMISSION = { ask: "每次询问", "workspace-write": "工作区内自动执行", bypass: "完全访问" };
   const number = (value) => value.toLocaleString("zh-CN");
   const seconds = (value) => `${(value / 1000).toFixed(1)} 秒`;
@@ -39,6 +39,7 @@
     const tabNames = { timeline: "执行时间线", prompt: "系统提示词", context: "上下文用量", raw: "原始请求" };
 
     function setTab(name) {
+      if (name === "prompt" || name === "raw") window.recordLearningEvent?.("xray-tab", { tab: name, turnId: selectedId });
       activeTab = name;
       for (const button of tabButtons) {
         const selected = button.dataset.xrayTab === name;
@@ -59,7 +60,10 @@
       $("#xray-backdrop").hidden = !modal;
     }
     function setOpen(value, focus = true) {
-      if (value && !open) returnFocus = document.activeElement;
+      if (value && !open) {
+        returnFocus = document.activeElement;
+        if (focus) window.recordLearningEvent?.("xray-opened", { turnId: selectedId });
+      }
       open = value;
       panel.hidden = !open;
       document.body.classList.toggle("xray-open", open);
@@ -195,6 +199,7 @@
         return record;
       }
       function refresh(turn) {
+        host.dataset.turnId = turn.id;
         const responses = new Map(), approvals = new Map(), results = new Map(), childEnds = new Map();
         for (const event of turn.events) {
           if (event.type === "llm.response") responses.set(event.round, event);
@@ -312,6 +317,7 @@
 
     function render() {
       const turn = turns.get(selectedId);
+      if (turn) panel.dataset.turnId = turn.id; else delete panel.dataset.turnId;
       if (viewId !== selectedId) {
         timeline.replaceChildren();
         timeline.scrollTop = 0;
@@ -453,6 +459,11 @@
     setOpen(localStorage.getItem("buildme.xray.open") === "true", false);
     return {
       setSession,
+      async openTurn(turn) {
+        await setSession(turn.sessionId, turn.engine === "dsh" ? "full" : "standard");
+        summaries.set(turn.id, turn); turns.set(turn.id, turn); follow = false;
+        await choose(turn.id); updateSelect(); setTab("timeline"); setOpen(true);
+      },
       bindHistory(items) { entries = items.filter((item) => item.role === "assistant"); schedule(); },
       beginRun(node) { pendingAnswer = { node }; },
       endRun() { pendingAnswer = undefined; },
