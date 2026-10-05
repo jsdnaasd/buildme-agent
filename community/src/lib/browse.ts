@@ -66,7 +66,7 @@ export function refreshHot(db: Db, now: number) {
   if (cache && now - cache.updated_at < 300000) return;
   db.transaction(() => {
     db.prepare(
-      `UPDATE posts SET hot_score=((SELECT COUNT(*)*2 FROM votes WHERE post_id=posts.id)+(SELECT COUNT(*) FROM reactions WHERE kind='post' AND target_id=posts.id)+(SELECT COUNT(*)*2 FROM replies r JOIN users u ON u.id=r.author_id WHERE r.post_id=posts.id AND r.deleted=0 AND r.status='public' AND u.banned=0)+1)/pow((@now-created_at)/3600000.0+2,1.5) WHERE status='public' AND created_at>=@since`,
+      `UPDATE posts SET hot_score=((SELECT COUNT(*)*2 FROM votes WHERE post_id=posts.id)+(SELECT COUNT(*) FROM reactions WHERE kind='post' AND target_id=posts.id)+(SELECT COUNT(*)*2 FROM replies r JOIN users u ON u.id=r.author_id WHERE r.post_id=posts.id AND r.deleted=0 AND r.status='public' AND u.banned=0 AND u.profile_pending=0)+1)/pow((@now-created_at)/3600000.0+2,1.5) WHERE status='public' AND created_at>=@since`,
     ).run({ now, since: now - 14 * 86400000 });
     db.prepare(
       "INSERT INTO cache_entries VALUES ('hot','',?) ON CONFLICT(key) DO UPDATE SET updated_at=excluded.updated_at",
@@ -139,7 +139,7 @@ export function feed(
               : "p.last_activity DESC";
       const rows = db
         .prepare(
-          `SELECT p.id FROM posts p JOIN users u ON u.id=p.author_id WHERE u.banned=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer))
+          `SELECT p.id FROM posts p JOIN users u ON u.id=p.author_id WHERE u.banned=0 AND u.profile_pending=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer))
         AND (@category='' OR p.category_id=@category) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag))
         AND (@harness='' OR EXISTS(SELECT 1 FROM work_harnesses wh WHERE wh.post_id=p.id AND wh.harness_id=@harness))
         AND p.created_at>=@since ${mode === "featured" && options.sort !== "votes" ? "AND p.featured=1" : ""}
@@ -173,7 +173,7 @@ export function feed(
     batch.forEach((id, i) => (bindings[`id${i}`] = id));
     const rows = db
       .prepare(
-        `${postSelect} WHERE p.id IN (${batch.map((_id, i) => `@id${i}`).join(",")}) AND u.banned=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer))`,
+        `${postSelect} WHERE p.id IN (${batch.map((_id, i) => `@id${i}`).join(",")}) AND u.banned=0 AND u.profile_pending=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer))`,
       )
       .all(bindings) as Post[];
     const map = new Map(rows.map((p) => [p.id, p]));
@@ -209,7 +209,7 @@ export function sidebar(db: Db, now: number): SidebarData {
     ids = (
       db
         .prepare(
-          "SELECT p.id FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND p.created_at>=? ORDER BY p.views+p.clicks DESC,p.id DESC LIMIT 5",
+          "SELECT p.id FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND u.profile_pending=0 AND p.created_at>=? ORDER BY p.views+p.clicks DESC,p.id DESC LIMIT 5",
         )
         .all(now - 7 * 86400000) as { id: number }[]
     ).map((x) => x.id);
@@ -221,14 +221,14 @@ export function sidebar(db: Db, now: number): SidebarData {
     .filter((id) =>
       db
         .prepare(
-          "SELECT 1 FROM posts p JOIN users u ON u.id=p.author_id WHERE p.id=? AND p.status='public' AND u.banned=0",
+          "SELECT 1 FROM posts p JOIN users u ON u.id=p.author_id WHERE p.id=? AND p.status='public' AND u.banned=0 AND u.profile_pending=0",
         )
         .get(id),
     )
     .map((id) => getPost(db, id, null));
   const counts = db
     .prepare(
-      "SELECT (SELECT COUNT(*) FROM users WHERE banned=0) users,COUNT(*) posts,COALESCE(SUM(p.created_at>=?),0) today FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0",
+      "SELECT (SELECT COUNT(*) FROM users WHERE banned=0) users,COUNT(*) posts,COALESCE(SUM(p.created_at>=?),0) today FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND u.profile_pending=0",
     )
     .get(
       Math.floor((now + 8 * 3600000) / 86400000) * 86400000 - 8 * 3600000,
@@ -238,7 +238,7 @@ export function sidebar(db: Db, now: number): SidebarData {
 export function tagCounts(db: Db) {
   return db
     .prepare(
-      "SELECT t.name,COUNT(p.id) count FROM tags t LEFT JOIN post_tags pt ON pt.tag_id=t.id LEFT JOIN posts p ON p.id=pt.post_id AND p.status='public' AND EXISTS(SELECT 1 FROM users u WHERE u.id=p.author_id AND u.banned=0) WHERE t.active=1 GROUP BY t.id ORDER BY count DESC,t.name",
+      "SELECT t.name,COUNT(p.id) count FROM tags t LEFT JOIN post_tags pt ON pt.tag_id=t.id LEFT JOIN posts p ON p.id=pt.post_id AND p.status='public' AND EXISTS(SELECT 1 FROM users u WHERE u.id=p.author_id AND u.banned=0 AND u.profile_pending=0) WHERE t.active=1 GROUP BY t.id ORDER BY count DESC,t.name",
     )
     .all() as { name: string; count: number }[];
 }
@@ -270,7 +270,7 @@ export function search(
     const query = terms.join(" ");
     params.term = query.toLowerCase();
     const where =
-      "u.banned=0 AND instr(lower(u.username||' '||u.bio),@term)>0 AND (@author='' OR u.username_key=@author)";
+      "u.banned=0 AND u.profile_pending=0 AND instr(lower(u.username||' '||u.bio),@term)>0 AND (@author='' OR u.username_key=@author)";
     const bindings = { term: params.term, author: params.author };
     const total = (
       db
@@ -319,7 +319,7 @@ export function search(
   const from = replies
     ? "replies r JOIN posts p ON p.id=r.post_id JOIN users u ON u.id=r.author_id JOIN users author ON author.id=p.author_id"
     : "posts p JOIN users u ON u.id=p.author_id";
-  const where = `p.status='public' AND u.banned=0 ${replies ? "AND r.deleted=0 AND r.status='public' AND author.banned=0" : ""} AND (@category='' OR p.category_id=@category) AND (@author='' OR u.username_key=@author) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag)) AND ${alias}.created_at>=@since ${matches.length ? "AND " + matches.join(" AND ") : ""}`;
+  const where = `p.status='public' AND u.banned=0 AND u.profile_pending=0 ${replies ? "AND r.deleted=0 AND r.status='public' AND author.banned=0 AND author.profile_pending=0" : ""} AND (@category='' OR p.category_id=@category) AND (@author='' OR u.username_key=@author) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag)) AND ${alias}.created_at>=@since ${matches.length ? "AND " + matches.join(" AND ") : ""}`;
   const countParams = Object.fromEntries(
     Object.entries(params).filter(
       ([key]) => key !== "limit" && key !== "offset",

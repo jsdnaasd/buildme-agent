@@ -4,6 +4,7 @@ import type { Post } from '../lib/posts.js';
 import { type Reply, reactionsFor } from '../lib/interactions.js';
 import { Csrf, Avatar } from './layout.js';
 
+import { ReportForm } from "./admin.js";
 export function Reactions({c,kind,id}:{c:Context<Env>;kind:'post'|'reply';id:number}) {
   const user = c.get('user');
   return <div class="reactions" data-reactions>
@@ -32,7 +33,7 @@ export function ReplyCard({c,post,reply,inline=false}:{c:Context<Env>;post:Post;
     </header>
     {reply.parent_floor && <a class="reply-parent" href={`/p/${post.id}?page=${Math.ceil(reply.parent_floor/30)}#${reply.parent_floor}`}>回复 #{reply.parent_floor} @{reply.parent_username}</a>}
     <div class="prose" dangerouslySetInnerHTML={{__html:reply.html}}/>
-    <Reactions c={c} kind="reply" id={reply.id}/>
+    <Reactions c={c} kind="reply" id={reply.id}/><ReportForm c={c} kind="reply" id={reply.id}/>
     <div class="post-actions">
       {user && <a href={`/p/${post.id}?replyTo=${reply.floor}#reply-form`} data-reply-to={reply.floor} data-username={reply.username}>回复</a>}
       <a href={`/p/${post.id}#${reply.floor}`} data-copy-floor>复制楼层地址</a>

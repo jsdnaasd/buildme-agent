@@ -51,15 +51,15 @@ export function writeWork(db:Db,id:number,input:WorkInput,coverId:string) {
   db.prepare('UPDATE posts SET work_summary=? WHERE id=?').run(input.summary,id);
 }
 export function selectedWorks(db:Db,viewer:User|null,count=4,filter={range:'all',harness:''},now=Date.now()) {
-  const ids=db.prepare("SELECT w.post_id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE w.selected_at IS NOT NULL AND p.status='public' AND u.banned=0 AND p.created_at>=@since AND (@harness='' OR EXISTS(SELECT 1 FROM work_harnesses wh WHERE wh.post_id=p.id AND wh.harness_id=@harness)) ORDER BY w.selected_at DESC,p.id DESC LIMIT @count").all({since:since(filter.range,now),harness:filter.harness,count}) as {post_id:number}[];
+  const ids=db.prepare("SELECT w.post_id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE w.selected_at IS NOT NULL AND p.status='public' AND u.banned=0 AND u.profile_pending=0 AND p.created_at>=@since AND (@harness='' OR EXISTS(SELECT 1 FROM work_harnesses wh WHERE wh.post_id=p.id AND wh.harness_id=@harness)) ORDER BY w.selected_at DESC,p.id DESC LIMIT @count").all({since:since(filter.range,now),harness:filter.harness,count}) as {post_id:number}[];
   return ids.map(x=>getWork(db,x.post_id,viewer)!);
 }
 export function homeWorks(db:Db,viewer:User|null,now:number) {
-  const ids=db.prepare("SELECT p.id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 ORDER BY (p.created_at>=@since) DESC,CASE WHEN p.created_at>=@since THEN (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) ELSE 0 END DESC,p.created_at DESC,p.id DESC LIMIT 4").all({since:now-14*86400000}) as {id:number}[];
+  const ids=db.prepare("SELECT p.id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND u.profile_pending=0 ORDER BY (p.created_at>=@since) DESC,CASE WHEN p.created_at>=@since THEN (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) ELSE 0 END DESC,p.created_at DESC,p.id DESC LIMIT 4").all({since:now-14*86400000}) as {id:number}[];
   return ids.map(x=>getWork(db,x.id,viewer)!);
 }
 export function userWorks(db:Db,viewer:User|null,authorId:number) {
-  return (db.prepare("SELECT p.id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE p.author_id=? AND p.status='public' AND u.banned=0 ORDER BY p.created_at DESC LIMIT 30").all(authorId) as {id:number}[]).map(x=>getWork(db,x.id,viewer)!);
+  return (db.prepare("SELECT p.id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE p.author_id=? AND p.status='public' AND u.banned=0 AND u.profile_pending=0 ORDER BY p.created_at DESC LIMIT 30").all(authorId) as {id:number}[]).map(x=>getWork(db,x.id,viewer)!);
 }
 export function worksPage(db:Db,viewer:User|null,options:{sort:string;range:string;harness:string;cursor?:string},now:number):WorkPageData {
   const result=feed(db,viewer,'works',{sort:options.sort==='latest'?'created':'votes',range:options.range,category:'4',tag:'',harness:options.harness,cursor:options.cursor},now,'/works');

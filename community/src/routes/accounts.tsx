@@ -24,10 +24,12 @@ import {
   logAdmin,
   userById,
 } from "../lib/auth.js";
-import { requireUser, requireAdmin, rotateSession } from "../lib/session.js";
+import { requireUser, requireAdmin, requireStaff, rotateSession } from "../lib/session.js";
 import { GithubClient } from "../lib/github.js";
 import { SafeFetcher, RemoteError } from "../lib/remote.js";
 import { saveImage } from "../lib/images.js";
+import { checkWords, queueProfile } from "../lib/moderation.js";
+import { AdminShell } from "../views/admin.js";
 function Settings({
   c,
   error,
@@ -120,7 +122,7 @@ function Settings({
                 绑定 GitHub
               </a>
             )}
-            {user.role === "admin" && (
+            {user.role !== "member" && (
               <p>
                 <a href="/admin">管理社区</a>
               </p>
@@ -161,7 +163,8 @@ function Admin({
     .prepare("SELECT id,username FROM users ORDER BY id DESC LIMIT 100")
     .all() as User[];
   return (
-    <Layout {...pageProps(c, "社区管理")} notice={notice}>
+    <AdminShell c={c} title="邀请码与账号恢复">
+      {notice && <p class="notice">{notice}</p>}
       <div class="page-heading">
         <h1>社区管理</h1>
         <a href="/admin/review">待审核帖子</a>
@@ -245,7 +248,7 @@ function Admin({
           </section>
         </aside>
       </div>
-    </Layout>
+    </AdminShell>
   );
 }
 export function accounts(
@@ -352,6 +355,12 @@ export function accounts(
           });
         ensureNameAvailable(c.get("db"), name, user.id);
       }
+      if(checkWords(c.get("db"),name+" "+bio)==='pending') {
+        queueProfile(c.get("db"),user.id,name,bio,c.get("now"));
+        return c.html(<Settings c={c} notice="资料已提交审核，审核前保留当前公开资料"/>);
+      }
+      c.get("db").prepare("DELETE FROM pending_profiles WHERE user_id=?").run(user.id);
+      c.get("db").prepare("UPDATE users SET profile_pending=0 WHERE id=?").run(user.id);
       c.get("db")
         .prepare(
           "UPDATE users SET username=?,username_key=?,bio=?,renamed_at=? WHERE id=?",
@@ -519,12 +528,14 @@ export function accounts(
         const suffix = String(n++);
         name = base.slice(0, 16 - suffix.length) + suffix;
       }
+      const profileReview=checkWords(db,name)==='pending';
       const result = db
         .prepare(
           "INSERT INTO users(username,username_key,github_id,created_at) VALUES (?,?,?,?)",
         )
         .run(name, usernameKey(name), String(profile.id), c.get("now"));
       user = userById(db, Number(result.lastInsertRowid))!;
+      if(profileReview) {db.prepare("UPDATE users SET profile_pending=1 WHERE id=?").run(user.id);queueProfile(db,user.id,name,"",c.get("now"));}
       if (profile.avatar_url) {
         try {
           const avatar = await remote.get(profile.avatar_url, {
@@ -552,11 +563,11 @@ export function accounts(
     return c.redirect("/latest", 303);
   });
   app.use("/admin/*", async (c, next) => {
-    requireAdmin(c);
+    requireStaff(c);
     await next();
   });
   app.get("/admin", (c) => {
-    requireAdmin(c);
+    if(requireStaff(c).role==='moderator')return c.redirect('/admin/review');
     return c.html(<Admin c={c} />);
   });
   app.post("/admin/invites", async (c) => {

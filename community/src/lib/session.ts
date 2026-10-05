@@ -103,3 +103,9 @@ export function requireAdmin(c: Context<Env>) {
     throw new FormError("页面不存在", {}, 404);
   return user;
 }
+
+export function requireStaff(c: Context<Env>) {
+  const user=c.get('user');
+  if(!user || user.role==='member') throw new FormError('页面不存在',{},404);
+  return user;
+}

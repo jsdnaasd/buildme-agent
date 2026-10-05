@@ -13,6 +13,7 @@ import type { Heading } from "../lib/markdown.js";
 import { WorkFields, WorkInfo } from "./works.js";
 import { getWork } from "../lib/works.js";
 import type { Reply } from "../lib/interactions.js";
+import { ReportForm } from "./admin.js";
 import { ReplyCard, ReplyForm, Reactions, Bookmark } from "./interactions.js";
 import type { FormError } from "../lib/validation.js";
 export function relativeTime(at: number, now: number) {
@@ -429,7 +430,7 @@ export function Detail({
         </div>
         <div class="post-actions">
           <Vote c={c} post={post} />
-          <Bookmark c={c} post={post}/>
+          <Bookmark c={c} post={post}/><ReportForm c={c} kind="post" id={post.id}/>
           <span>{post.views} 次浏览</span>
           {user && (user.id === post.author_id || user.role === "admin") && (
             <>

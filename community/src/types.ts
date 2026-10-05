@@ -19,6 +19,7 @@ export interface User {
   first_post_approved: number;
   last_home_seen: number;
   last_seen_at: number;
+  profile_pending: number;
 }
 export interface Env {
   Bindings: HttpBindings;

@@ -12,6 +12,7 @@ import { sessions } from "./lib/session.js";
 import { FormError } from "./lib/validation.js";
 import { GithubClient } from "./lib/github.js";
 import { SafeFetcher } from "./lib/remote.js";
+import { administration } from "./routes/admin.js";
 import { accounts } from "./routes/accounts.js";
 import { posts } from "./routes/posts.js";
 import { workRoutes } from "./routes/works.js";
@@ -97,6 +98,7 @@ export function createApp(config: Config, db: Db, deps: Dependencies = {}) {
   );
   app.use("*", sessions);
   accounts(app, deps.github ?? new GithubClient(config), remote);
+  administration(app);
   browsing(app);
   workRoutes(app);
   posts(app, remote);

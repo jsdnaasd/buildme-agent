@@ -38,7 +38,7 @@ test("P-12 关闭JS注册、登录、发帖、审核、回复和点赞", async (
   });
   await login(admin);
   await admin.goto("/admin/review");
-  await admin.getByRole("button", { name: "通过并公开" }).click();
+  await admin.getByRole("button", { name: "通过审核" }).click();
   await admin.goto(url);
   await admin.getByLabel("回复 · Markdown").fill("无JS也可以回复。");
   await admin.getByRole("button", { name: "发布回复" }).click();

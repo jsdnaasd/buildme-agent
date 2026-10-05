@@ -66,7 +66,7 @@ export function renderMarkdown(db: Db, body: string, siteUrl: string) {
       (match, name) => {
         const user = db
           .prepare(
-            "SELECT id,username FROM users WHERE username_key=? AND banned=0",
+            "SELECT id,username FROM users WHERE username_key=? AND banned=0 AND profile_pending=0",
           )
           .get(usernameKey(name)) as
           { id: number; username: string } | undefined;

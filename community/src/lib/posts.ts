@@ -78,7 +78,7 @@ export function categories(db: Db) {
 }
 export function tags(db: Db) {
   return db
-    .prepare("SELECT * FROM tags WHERE active=1 ORDER BY name")
+    .prepare("SELECT * FROM tags WHERE active=1 ORDER BY position,name")
     .all() as Tag[];
 }
 export function validatePost(db: Db, input: PostInput, draft = false) {
@@ -115,24 +115,25 @@ export function validatePost(db: Db, input: PostInput, draft = false) {
 }
 export const postSelect = `SELECT p.*,u.username,u.avatar_url,c.name category_name,c.color category_color,
  (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) vote_count,
- (SELECT COUNT(*) FROM replies r JOIN users ru ON ru.id=r.author_id WHERE r.post_id=p.id AND r.deleted=0 AND r.status='public' AND ru.banned=0) reply_count,
+ (SELECT COUNT(*) FROM replies r JOIN users ru ON ru.id=r.author_id WHERE r.post_id=p.id AND r.deleted=0 AND r.status='public' AND ru.banned=0 AND ru.profile_pending=0) reply_count,
  (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id AND v.user_id=@viewer) voted,
  (SELECT i.thumb_url FROM image_refs ref JOIN images i ON i.id=ref.image_id WHERE ref.kind='post' AND ref.entity_id=p.id LIMIT 1) first_image FROM posts p JOIN users u ON u.id=p.author_id JOIN categories c ON c.id=p.category_id`;
 export function getPost(db: Db, id: number, viewer: User | null) {
   const post = db
-    .prepare(`${postSelect} WHERE p.id=@id AND u.banned=0`)
+    .prepare(`${postSelect} WHERE p.id=@id AND u.banned=0 AND u.profile_pending=0`)
     .get({ id, viewer: viewer?.id ?? 0 }) as Post | undefined;
   if (!post) throw new FormError("帖子不存在", {}, 404);
   if (post.status === "deleted") throw new FormError("这条帖子已删除", {}, 404);
   if (
     post.status !== "public" &&
-    post.author_id !== viewer?.id &&
-    viewer?.role !== "admin"
+    (post.status !== "pending" || post.author_id !== viewer?.id) &&
+    viewer?.role !== "admin" && viewer?.role !== "moderator"
   )
     throw new FormError("帖子不存在", {}, 404);
   return post;
 }
 export function canWrite(user: User, now: number) {
+  if(user.profile_pending) throw new FormError("账号资料正在审核，请等待审核结果",{},403);
   if (user.muted_until && user.muted_until > now)
     throw new FormError(
       `禁言至 ${new Date(user.muted_until).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}`,
@@ -177,7 +178,7 @@ export function checkPostingLimits(
         input.body
           .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
           .match(/https?:\/\/[^\s)]+/g) ?? []
-      ).length + (input.link ? 1 : 0);
+      ).length + (input.link ? 1 : 0) + (input.work.demoUrl ? 1 : 0) + (input.work.sourceUrl ? 1 : 0);
     if (images > 2 || links > 2)
       throw new FormError("新账号每条内容最多 2 个外部链接、2 张图片");
   }

@@ -3,14 +3,14 @@ import type { Env, User } from "../types.js";
 import { Layout, Csrf, Empty } from "../views/layout.js";
 import { pageProps } from "../views/forms.js";
 import { getWork, editWork, prepareCover, writeWork } from "../lib/works.js";
-import { replyRows, maxFloor, notifyMentions } from "../lib/interactions.js";
+import { replyRows, maxFloor, notifyMentions, notify } from "../lib/interactions.js";
 import {
   Editor,
   Detail,
   PostCard,
 } from "../views/posts.js";
 import { FormError, length, textField } from "../lib/validation.js";
-import { requireUser, requireAdmin } from "../lib/session.js";
+import { requireUser, requireAdmin, requireStaff } from "../lib/session.js";
 import { limit, logAdmin } from "../lib/auth.js";
 import { SafeFetcher } from "../lib/remote.js";
 import { resolveLink, duplicateLink, linkSource } from "../lib/links.js";
@@ -26,6 +26,7 @@ import {
   type Post,
   type PostInput,
 } from "../lib/posts.js";
+import { firstPostReview, moderationStatus, rejectDuplicate, checkWords } from "../lib/moderation.js";
 function isJson(c: Context<Env>) {
   return c.req.header("accept")?.includes("application/json");
 }
@@ -180,7 +181,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
           { link: `已有分享：/p/${duplicate.id}` },
           409,
         );
-      if (!old) checkPostingLimits(db, user, now, values);
+      if (!old) {rejectDuplicate(db,user.id,values.title+values.body+values.link,now);checkPostingLimits(db, user, now, values);}
       let info = {
         title: values.title,
         source: values.link ? linkSource(values.link) : "",
@@ -200,6 +201,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
           if (!(error instanceof FormError)) throw error;
         }
       }
+      const status=moderationStatus(db,user,[values.title,values.body,values.link,info.title,values.work.summary,values.work.demoUrl,values.work.sourceUrl].join(" "),now,c.get("config").siteUrl);
       const rendered = renderMarkdown(db, values.body, c.get("config").siteUrl);
       if (rendered.imageCount > 30)
         throw new FormError("每帖最多 30 张图片", {
@@ -255,6 +257,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
             now,
             old.id,
           );
+          if(status==='pending')db.prepare("UPDATE posts SET status='pending' WHERE id=?").run(old.id);
           id = old.id;
         } else {
           id = Number(
@@ -275,9 +278,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
                 info.source,
                 info.thumbnail,
                 tagNames,
-                user.first_post_approved || user.role === "admin"
-                  ? "public"
-                  : "pending",
+                status==='pending'||(firstPostReview(db)&&!user.first_post_approved&&user.role==='member') ? "pending" : "public",
                 now,
                 now,
               ).lastInsertRowid,
@@ -311,7 +312,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
             "DELETE FROM image_refs WHERE kind='draft' AND entity_id=?",
           ).run(values.draftId);
         }
-        if (!old) notifyMentions(db, values.body, user.id, id, 0, now);
+        if (!old && status==='public') notifyMentions(db, values.body, user.id, id, 0, now);
         return id;
       })();
       const editorId = /^(new|post-\d+|draft-\d+)$/.test(values.editorId)
@@ -543,6 +544,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
   app.post("/tags/request", async (c) => {
     const user = requireUser(c),
       name = textField(await c.req.formData(), "name").trim();
+    checkWords(c.get("db"),name);
     if (length(name) < 1 || length(name) > 24)
       throw new FormError("标签名需为 1–24 字");
     limit(
@@ -567,54 +569,8 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
       </Layout>,
     );
   });
-  app.get("/admin/review", (c) => {
-    requireAdmin(c);
-    const db = c.get("db");
-    const pending = db
-      .prepare(
-        "SELECT id FROM posts WHERE status='pending' ORDER BY created_at",
-      )
-      .all() as { id: number }[];
-    const requests = db
-      .prepare(
-        "SELECT r.*,u.username FROM tag_requests r JOIN users u ON u.id=r.user_id WHERE r.status='pending'",
-      )
-      .all() as { id: number; name: string; username: string }[];
-    return c.html(
-      <Layout {...pageProps(c, "待审核")}>
-        <div class="page-heading">
-          <h1>待审核</h1>
-          <a href="/admin">账号与邀请码</a>
-        </div>
-        {pending.map(({ id }) => (
-          <section class="panel">
-            <PostCard c={c} post={getPost(db, id, c.get("user"))} />
-            <form method="post" action={`/admin/posts/${id}/approve`}>
-              <Csrf value={c.get("csrf")} />
-              <button class="button primary">通过并公开</button>
-            </form>
-          </section>
-        ))}
-        {!pending.length && <Empty title="没有待审核帖子" />}
-        <h2>新标签申请</h2>
-        {requests.map((r) => (
-          <form
-            class="panel"
-            method="post"
-            action={`/admin/tags/${r.id}/approve`}
-          >
-            <Csrf value={c.get("csrf")} />
-            <p>
-              {r.name} · {r.username}
-            </p>
-            <button class="button">批准标签</button>
-          </form>
-        ))}
-      </Layout>,
-    );
-  });
   app.post("/admin/posts/:id/approve", (c) => {
-    const admin = requireAdmin(c),
+    const admin = requireStaff(c),
       db = c.get("db"),
       post = getPost(db, Number(c.req.param("id")), admin);
     db.transaction(() => {
@@ -625,6 +581,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         post.author_id,
       );
       logAdmin(db, admin.id, "post.approve", String(post.id), c.get("now"));
+      notify(db,post.author_id,admin.id,"moderation",null,0,c.get("now"),"你的帖子审核已通过",`/p/${post.id}`);
     })();
     return c.redirect("/admin/review", 303);
   });
@@ -647,7 +604,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
     return c.redirect("/admin/review", 303);
   });
   app.get("/admin/posts/:id/history", (c) => {
-    requireAdmin(c);
+    requireStaff(c);
     const versions = c
       .get("db")
       .prepare(

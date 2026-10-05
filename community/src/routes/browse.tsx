@@ -131,11 +131,11 @@ export function browsing(app: Hono<Env>) {
     const db = c.get("db"),
       name = c.req.param("name");
     let profile = db
-      .prepare("SELECT * FROM users WHERE username_key=? AND banned=0")
+      .prepare("SELECT * FROM users WHERE username_key=? AND banned=0 AND profile_pending=0")
       .get(usernameKey(name)) as User | undefined;
     if (!profile && /^\d+$/.test(name)) {
       profile = db
-        .prepare("SELECT * FROM users WHERE id=? AND banned=0")
+        .prepare("SELECT * FROM users WHERE id=? AND banned=0 AND profile_pending=0")
         .get(name) as User | undefined;
       if (profile)
         return c.redirect(`/u/${encodeURIComponent(profile.username)}`, 301);
@@ -148,7 +148,7 @@ export function browsing(app: Hono<Env>) {
       .all(profile.id) as { id: number }[];
     const replies = db
       .prepare(
-        "SELECT r.post_id,r.floor,r.body,p.title FROM replies r JOIN posts p ON p.id=r.post_id JOIN users u ON u.id=p.author_id WHERE r.author_id=? AND r.deleted=0 AND r.status='public' AND p.status='public' AND u.banned=0 ORDER BY r.created_at DESC LIMIT 30",
+        "SELECT r.post_id,r.floor,r.body,p.title FROM replies r JOIN posts p ON p.id=r.post_id JOIN users u ON u.id=p.author_id WHERE r.author_id=? AND r.deleted=0 AND r.status='public' AND p.status='public' AND u.banned=0 AND u.profile_pending=0 ORDER BY r.created_at DESC LIMIT 30",
       )
       .all(profile.id) as {
       post_id: number;
@@ -177,7 +177,7 @@ export function browsing(app: Hono<Env>) {
     const rows = c
       .get("db")
       .prepare(
-        `SELECT p.id,p.title,p.created_at,u.username FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND (@category='' OR p.category_id=@category) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag)) ORDER BY p.created_at DESC,p.id DESC LIMIT 30`,
+        `SELECT p.id,p.title,p.created_at,u.username FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0 AND u.profile_pending=0 AND (@category='' OR p.category_id=@category) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag)) ORDER BY p.created_at DESC,p.id DESC LIMIT 30`,
       )
       .all({ category, tag }) as {
       id: number;

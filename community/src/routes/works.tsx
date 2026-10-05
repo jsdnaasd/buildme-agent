@@ -7,18 +7,18 @@ import { Editor } from '../views/posts.js';
 import { worksPage, getWork } from '../lib/works.js';
 import { postInput, getPost } from '../lib/posts.js';
 import { FormError } from '../lib/validation.js';
-import { requireUser, requireAdmin } from '../lib/session.js';
+import { requireUser, requireStaff } from '../lib/session.js';
 import { saveImage } from '../lib/images.js';
 import { limit, logAdmin } from '../lib/auth.js';
 import { notify } from '../lib/interactions.js';
 export function workRoutes(app:Hono<Env>) {
   app.get('/admin/works',c=>{
-    const user=requireAdmin(c),db=c.get('db');
+    const user=requireStaff(c),db=c.get('db');
     const rows=db.prepare("SELECT w.post_id FROM works w JOIN posts p ON p.id=w.post_id JOIN users u ON u.id=p.author_id WHERE p.status!='deleted' AND u.banned=0 ORDER BY p.created_at DESC LIMIT 50").all() as {post_id:number}[];
     return c.html(<Layout {...pageProps(c,'管理作品精选')}><h1>作品精选</h1><a href="/admin">返回管理</a><div class="work-grid">{rows.map(row=>{const work=getWork(db,row.post_id,user)!;return <section><WorkCard work={work}/><form method="post" action={`/admin/works/${row.post_id}/select`}><Csrf value={c.get('csrf')}/><input type="hidden" name="active" value={work.selected_at?'0':'1'}/><button class="button">{work.selected_at?'取消精选':'设为精选'}</button></form></section>;})}</div></Layout>);
   });
   app.post('/admin/works/:id/select',async c=>{
-    const user=requireAdmin(c),db=c.get('db'),work=getWork(db,Number(c.req.param('id')),user);
+    const user=requireStaff(c),db=c.get('db'),work=getWork(db,Number(c.req.param('id')),user);
     if(!work)throw new FormError('作品不存在',{},404);
     const active=String((await c.req.formData()).get('active'));
     if(!['0','1'].includes(active))throw new FormError('操作无效');

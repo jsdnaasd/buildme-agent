@@ -14,6 +14,7 @@ import {
   validateUsername,
   validatePassword,
 } from "./validation.js";
+import { checkWords, queueProfile } from "./moderation.js";
 const scrypt = promisify(scryptCallback);
 export const token = () => randomBytes(32).toString("base64url");
 export const digest = (value: string) =>
@@ -80,6 +81,7 @@ export async function register(
   now: number,
 ) {
   ensureNameAvailable(db, name);
+  const review=checkWords(db,name)==='pending';
   validatePassword(password);
   const hash = await hashPassword(password);
   return db.transaction(() => {
@@ -108,6 +110,7 @@ export async function register(
       )
       .run(name, usernameKey(name), hash, now);
     const id = Number(result.lastInsertRowid);
+    if(review) {db.prepare("UPDATE users SET profile_pending=1 WHERE id=?").run(id);queueProfile(db,id,name,"",now);}
     db.prepare("UPDATE invitations SET used=used+1 WHERE id=?").run(invite.id);
     db.prepare("INSERT INTO invitation_uses VALUES (?,?,?)").run(
       invite.id,

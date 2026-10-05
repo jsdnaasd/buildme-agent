@@ -12,6 +12,7 @@ import { saveImage } from '../lib/images.js';
 import { renderMarkdown, referenceImages } from '../lib/markdown.js';
 import { emojis, getReply, maxFloor, notify, notifyMentions, replyRows, unreadCount, type Reply } from '../lib/interactions.js';
 
+import { moderationStatus, rejectDuplicate } from "../lib/moderation.js";
 const json = (c:Context<Env>)=>c.req.header('accept')?.includes('application/json');
 function activeValue(form:FormData) {
   const active=textField(form,'active');
@@ -35,7 +36,7 @@ export function interactions(app:Hono<Env>) {
   app.get('/api/users',c=>{
     requireUser(c);
     const q=(c.req.query('q')??'').slice(0,16),post=Number(c.req.query('post')??0);
-    const users=c.get('db').prepare(`SELECT u.id,u.username FROM users u WHERE u.banned=0 AND instr(u.username_key,lower(?))>0
+    const users=c.get('db').prepare(`SELECT u.id,u.username FROM users u WHERE u.banned=0 AND u.profile_pending=0 AND instr(u.username_key,lower(?))>0
       ORDER BY EXISTS(SELECT 1 FROM replies r WHERE r.post_id=? AND r.author_id=u.id) DESC,EXISTS(SELECT 1 FROM posts p WHERE p.id=? AND p.author_id=u.id) DESC,u.username LIMIT 6`).all(q,post,post);
     return c.json({users});
   });
@@ -61,16 +62,19 @@ export function interactions(app:Hono<Env>) {
       if(textField(form,'action')==='preview') return show(undefined,rendered.html);
       if(newAccount(db,user,now) && (rendered.imageCount>2 || (body.replace(/!\[[^\]]*\]\([^)]+\)/g,'').match(/https?:\/\/[^\s)]+/g)??[]).length>2)) throw new FormError('新账号每条内容最多 2 个外部链接、2 张图片');
       if(rendered.imageCount>30) throw new FormError('每条回复最多 30 张图片');
-      const parent=parentFloor?db.prepare("SELECT r.* FROM replies r JOIN users u ON u.id=r.author_id WHERE r.post_id=? AND r.floor=? AND r.deleted=0 AND r.status='public' AND u.banned=0").get(post.id,parentFloor) as Reply|undefined:undefined;
+      const parent=parentFloor?db.prepare("SELECT r.* FROM replies r JOIN users u ON u.id=r.author_id WHERE r.post_id=? AND r.floor=? AND r.deleted=0 AND r.status='public' AND u.banned=0 AND u.profile_pending=0").get(post.id,parentFloor) as Reply|undefined:undefined;
       if(parentFloor && !parent) throw new FormError('回复对象不存在');
+      const status=moderationStatus(db,user,body,now,c.get('config').siteUrl);
+      if(!old) rejectDuplicate(db,user.id,body,now);
       if(!old) limit(db,'reply',String(user.id),newAccount(db,user,now)?3:6,60000,now);
       const floor=db.transaction(()=>{
         const floor=old?.floor??maxFloor(db,post.id)+1;
         let id=old?.id;
         if(old) db.prepare('UPDATE replies SET body=?,html=?,updated_at=? WHERE id=?').run(body,rendered.html,now,old.id);
         else id=Number(db.prepare('INSERT INTO replies(post_id,author_id,floor,body,html,created_at,parent_floor) VALUES (?,?,?,?,?,?,?)').run(post.id,user.id,floor,body,rendered.html,now,parent?.floor??null).lastInsertRowid);
+        db.prepare('UPDATE replies SET status=? WHERE id=?').run(status,id!);
         referenceImages(db,'reply',id!,rendered.imageIds);
-        if(!old) {
+        if(!old && status==='public') {
           db.prepare('UPDATE posts SET last_activity=? WHERE id=?').run(now,post.id);
           notify(db,post.author_id,user.id,'reply',post.id,floor,now);
           if(parent && parent.author_id!==post.author_id) notify(db,parent.author_id,user.id,'reply-to',post.id,floor,now);
@@ -129,21 +133,22 @@ export function interactions(app:Hono<Env>) {
   });
   app.get('/bookmarks',c=>{
     const user=requireUser(c),db=c.get('db');
-    const ids=db.prepare("SELECT b.post_id FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN users u ON u.id=p.author_id WHERE b.user_id=? AND p.status='public' AND u.banned=0 ORDER BY b.created_at DESC").all(user.id) as {post_id:number}[];
+    const ids=db.prepare("SELECT b.post_id FROM bookmarks b JOIN posts p ON p.id=b.post_id JOIN users u ON u.id=p.author_id WHERE b.user_id=? AND p.status='public' AND u.banned=0 AND u.profile_pending=0 ORDER BY b.created_at DESC").all(user.id) as {post_id:number}[];
     return c.html(<Layout {...pageProps(c,'我的收藏')}><h1>我的收藏</h1><p class="muted">只有你可以看到。</p><div class="feed">{ids.length?ids.map(x=><PostCard c={c} post={getPost(db,x.post_id,user)}/>):<Empty title="还没有收藏"/>}</div></Layout>);
   });
   app.get('/notifications/count',c=>c.json({unread:unreadCount(c.get('db'),requireUser(c))}));
   app.get('/notifications',c=>{
     const user=requireUser(c),db=c.get('db');
-    const rows=db.prepare("SELECT n.*,p.title,u.username,(SELECT COUNT(*) FROM notification_actors a WHERE a.notification_id=n.id) actors FROM notifications n JOIN posts p ON p.id=n.post_id JOIN users author ON author.id=p.author_id JOIN users u ON u.id=n.actor_id WHERE n.user_id=? AND p.status='public' AND author.banned=0 ORDER BY n.updated_at DESC,n.id DESC LIMIT 200").all(user.id) as {id:number;kind:string;title:string;username:string;actors:number;read_at:number|null}[];
+    const rows=db.prepare("SELECT n.*,COALESCE(p.title,n.message) title,n.message,u.username,(SELECT COUNT(*) FROM notification_actors a WHERE a.notification_id=n.id) actors FROM notifications n LEFT JOIN posts p ON p.id=n.post_id LEFT JOIN users author ON author.id=p.author_id JOIN users u ON u.id=n.actor_id WHERE n.user_id=? AND (n.post_id IS NULL OR (p.status='public' AND author.banned=0 AND author.profile_pending=0)) ORDER BY n.updated_at DESC,n.id DESC LIMIT 200").all(user.id) as {id:number;kind:string;title:string;message:string;username:string;actors:number;read_at:number|null}[];
     const labels:Record<string,string>={reply:'回复了你的帖子','reply-to':'回复了你的回复',mention:'提到了你',like:'赞了你的内容',featured:'将你的帖子设为精华',selected:'将你的作品设为精选',moderation:'处理了你的内容'};
-    return c.html(<Layout {...pageProps(c,'通知')}><div class="page-heading"><h1>通知</h1><form method="post" action="/notifications/read-all"><Csrf value={c.get('csrf')}/><button class="button">全部标为已读</button></form></div><div class="notification-list">{rows.length?rows.map(n=><form class={`panel notification ${n.read_at?'':'unread'}`} method="post" action={`/notifications/${n.id}/read`}><Csrf value={c.get('csrf')}/><button class="notification-link">{n.username}{n.actors>1?`等 ${n.actors} 人`:''}{labels[n.kind]}《{n.title}》{!n.read_at&&<span class="tag">未读</span>}</button></form>):<Empty title="暂时没有通知"/>}</div></Layout>);
+    return c.html(<Layout {...pageProps(c,'通知')}><div class="page-heading"><h1>通知</h1><form method="post" action="/notifications/read-all"><Csrf value={c.get('csrf')}/><button class="button">全部标为已读</button></form></div><div class="notification-list">{rows.length?rows.map(n=><form class={`panel notification ${n.read_at?'':'unread'}`} method="post" action={`/notifications/${n.id}/read`}><Csrf value={c.get('csrf')}/><button class="notification-link">{n.message || `${n.username}${n.actors>1?`等 ${n.actors} 人`:''}${labels[n.kind]}《${n.title}》`}{!n.read_at&&<span class="tag">未读</span>}</button></form>):<Empty title="暂时没有通知"/>}</div></Layout>);
   });
   app.post('/notifications/read-all',c=>{const user=requireUser(c);c.get('db').prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(c.get('now'),user.id);return c.redirect('/notifications',303);});
   app.post('/notifications/:id/read',c=>{
-    const user=requireUser(c),db=c.get('db'),row=db.prepare('SELECT post_id,floor FROM notifications WHERE id=? AND user_id=?').get(c.req.param('id'),user.id) as {post_id:number;floor:number}|undefined;
+    const user=requireUser(c),db=c.get('db'),row=db.prepare('SELECT post_id,floor,link FROM notifications WHERE id=? AND user_id=?').get(c.req.param('id'),user.id) as {post_id:number|null;floor:number;link:string}|undefined;
     if(!row) throw new FormError('通知不存在',{},404);
     db.prepare('UPDATE notifications SET read_at=? WHERE id=? AND user_id=?').run(c.get('now'),c.req.param('id'),user.id);
+    if(row.post_id===null)return c.redirect(row.link||'/settings',303);
     return c.redirect(`/p/${row.post_id}${row.floor?`?page=${Math.ceil(row.floor/30)}#${row.floor}`:''}`,303);
   });
 }
