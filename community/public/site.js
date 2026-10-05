@@ -67,3 +67,15 @@ document.addEventListener('click', async (event) => {
 
 document.addEventListener('community:content-updated', enhanceContent);
 enhanceContent();
+
+for (const marker of document.querySelectorAll('[data-clear-draft][data-user-id]')) {
+  try {
+    localStorage.removeItem(`buildme:draft:${marker.dataset.userId}:${marker.dataset.clearDraft}`);
+  } catch {
+    const notice = document.createElement('p');
+    notice.className = 'notice';
+    notice.setAttribute('role', 'status');
+    notice.textContent = '发布成功。浏览器无法清除对应的本地草稿，下次写作时可选择丢弃。';
+    document.querySelector('.page').prepend(notice);
+  }
+}

@@ -24,3 +24,11 @@
 - `/healthz` 执行数据库读写；`?embed=1&theme=dark` 预览 App 嵌入外壳。
 
 本批交付不执行部署。完整 Ubuntu/Caddy/systemd 部署、备份与恢复脚本在 C8 交付。
+
+## 账号
+
+运行 `pnpm create-admin`，按提示输入用户名和隐藏的密码。打开 `/login` 登录后，在 `/admin` 生成邀请码。邀请码仅在生成时显示一次；已有邀请码列表只显示标识与使用次数。用户在 `/register` 注册，设置页为 `/settings`。
+
+GitHub OAuth App 的回调地址设为 `${SITE_URL}/auth/github/callback`，配置 `.env` 中的 client ID 和 secret。未配置时入口隐藏。授权使用 state 和 PKCE，访问令牌只用于读取资料，不持久保存。
+
+本地请使用 `localhost`（不使用局域网 HTTP 地址）；会话 Cookie 始终带 Secure、HttpOnly、SameSite=Lax。线上必须由 HTTPS 反向代理提供服务。仅在自有代理会重写 X-Forwarded-For 时设置 TRUST_PROXY=true。
