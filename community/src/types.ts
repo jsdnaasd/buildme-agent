@@ -17,6 +17,8 @@ export interface User {
   banned: number;
   muted_until: number | null;
   first_post_approved: number;
+  last_home_seen: number;
+  last_seen_at: number;
 }
 export interface Env {
   Bindings: HttpBindings;

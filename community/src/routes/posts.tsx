@@ -1,10 +1,9 @@
 import type { Hono, Context } from "hono";
 import type { Env, User } from "../types.js";
-import { Layout, Csrf, Empty, Avatar } from "../views/layout.js";
+import { Layout, Csrf, Empty } from "../views/layout.js";
 import { pageProps } from "../views/forms.js";
 import { replyRows, maxFloor, notifyMentions } from "../lib/interactions.js";
 import {
-  Latest,
   Editor,
   Detail,
   PostCard,
@@ -21,7 +20,6 @@ import {
   blankPost,
   validatePost,
   getPost,
-  latestPosts,
   checkPostingLimits,
   canWrite,
   type Post,
@@ -53,40 +51,6 @@ function showEditorError(
   );
 }
 export function posts(app: Hono<Env>, remote: SafeFetcher) {
-  app.get("/latest", (c) => {
-    const page = positivePage(c.req.query("page")),
-      sort = c.req.query("sort") === "created" ? "created" : "activity",
-      category = c.req.query("category") ?? "";
-    return c.html(
-      <Latest
-        c={c}
-        posts={latestPosts(c.get("db"), c.get("user"), sort, page, category)}
-        page={page}
-        sort={sort}
-        category={category}
-      />,
-    );
-  });
-  app.get("/u/:id", (c) => {
-    const user = c
-      .get("db")
-      .prepare(
-        "SELECT id,username,avatar_url,bio FROM users WHERE id=? AND banned=0",
-      )
-      .get(c.req.param("id")) as User | undefined;
-    if (!user) throw new FormError("用户不存在", {}, 404);
-    return c.html(
-      <Layout {...pageProps(c, user.username)}>
-        <section class="panel">
-          <Avatar user={user} />
-          <h1>@{user.username}</h1>
-          <p>{user.bio || "还没有填写简介。"}</p>
-          <p class="muted">帖子、回复和作品汇总将在后续开放。</p>
-          <a href="/latest">返回社区</a>
-        </section>
-      </Layout>,
-    );
-  });
   app.get("/new", (c) => {
     requireUser(c);
     return c.html(<Editor c={c} />);

@@ -51,6 +51,7 @@ export function Layout(p: PageProps) {
           />
           <link rel="stylesheet" href={asset("site.css")} />
           <script src={asset("site.js")} defer />
+          <script src={asset("browse.js")} defer />
           <script src={asset("interactions.js")} defer />
           {p.editor && <script src={asset("editor.js")} defer />}
         </head>
@@ -58,30 +59,28 @@ export function Layout(p: PageProps) {
           <div class="shell">
             <header class="site-header">
               <div class="header-inner">
-                <a href="/latest" class="brand">
+                <a href="/" class="brand">
                   <span class="brand-mark">
                     <Icon name="cube" />
                   </span>
                   BuildMe <span class="brand-subtitle">社区</span>
                 </a>
                 <nav class="nav" aria-label="主导航">
-                  <span aria-disabled="true" title="C4 开放">
-                    热门<small>即将开放</small>
-                  </span>
+                  <a href="/" aria-current={p.path === "/" || p.path === "/hot" ? "page" : undefined}>热门</a>
                   <a
                     href="/latest"
                     aria-current={p.path === "/latest" ? "page" : undefined}
                   >
                     最新
                   </a>
-                  <span aria-disabled="true" title="C4 开放">
-                    精华
-                  </span>
+                  <a href="/featured" aria-current={p.path === "/featured" ? "page" : undefined}>精华</a>
                   <span aria-disabled="true" title="C5 开放">
                     作品墙
                   </span>
                 </nav>
-                <div class="header-actions">
+                <form class="header-search" action="/search" role="search"><label class="sr-only" for="site-search">搜索社区</label><input id="site-search" data-search-input name="q" type="search" placeholder="搜索社区 /" autocomplete="off" aria-controls="search-suggestions"/><div id="search-suggestions" role="listbox" hidden/></form>
+                <button class="button mobile-menu-toggle" type="button" data-mobile-menu aria-controls="mobile-navigation" aria-expanded="false">菜单</button>
+                <div class="header-actions" id="mobile-navigation">
                   <form method="post" action="/theme" class="inline-form">
                     <Csrf value={p.csrf} />
                     <input
@@ -104,7 +103,7 @@ export function Layout(p: PageProps) {
                       切换
                     </button>
                   </form>
-                  <span class="download-link muted">下载即将开放</span>
+                  <a href="/download" class="download-link">下载 BuildMe</a>
                   {p.user ? (
                     <>
                       <a href="/new" class="button primary">

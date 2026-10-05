@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { readConfig } from "../src/config.js";
 import { openDb } from "../src/db/index.js";
 import { createApp } from "../src/app.js";
+import { renderMarkdown } from "../src/lib/markdown.js";
 import { hashPassword, digest } from "../src/lib/auth.js";
 if (!process.env.COMMUNITY_BROWSER_DATA_DIR)
   throw new Error("请通过 pnpm test:browser 使用隔离的测试目录");
@@ -25,7 +26,10 @@ for (const name of ["浏览器管理员", "草稿同学", "图片同学", "快�
 db.prepare(
   "INSERT INTO invitations(code_hash,label,max_uses,created_by) VALUES (?,?,?,1)",
 ).run(digest("browser-only-invite"), "浏览器测试邀请码", 5);
-db.prepare("INSERT INTO posts(id,author_id,category_id,title,body,html,excerpt,toc,tags_text,status,created_at,last_activity) VALUES (1,2,2,'两百楼讨论测试','讨论楼层','<p>讨论楼层</p>','讨论楼层','[]','','public',?,?)").run(Date.now()-86400000,Date.now());
+db.prepare("INSERT INTO posts(id,author_id,category_id,title,body,html,excerpt,toc,tags_text,status,created_at,last_activity) VALUES (1,2,2,'两百楼 harness 讨论测试','讨论楼层','<p>讨论楼层</p>','讨论楼层','[]','','public',?,?)").run(Date.now()-86400000,Date.now());
+const codeBody='讨论楼层\n\n```js\n// 代码高亮对比度\nconst answer = 42;\nconsole.log("harness");\n```';
+const codeRendered=renderMarkdown(db,codeBody,config.siteUrl);
+db.prepare('UPDATE posts SET body=?,html=? WHERE id=1').run(codeBody,codeRendered.html);
 const replyInsert=db.prepare('INSERT INTO replies(post_id,author_id,floor,body,html,created_at) VALUES (1,3,?,?,?,?)');
 db.transaction(()=>{for(let floor=1;floor<=200;floor++)replyInsert.run(floor,`这是第 ${floor} 楼的一段文字。`,`<p>这是第 ${floor} 楼的一段文字。</p>`,Date.now());})();
 const server = serve({

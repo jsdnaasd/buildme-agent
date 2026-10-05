@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { Env } from "../types.js";
-import { Layout, Csrf, Avatar, Icon, Empty } from "./layout.js";
+import { Layout, Csrf, Avatar, Icon } from "./layout.js";
 import { pageProps, Field, Errors } from "./forms.js";
 import {
   categories,
@@ -85,7 +85,7 @@ export function PostCard({ c, post }: { c: Context<Env>; post: Post }) {
       <div class="post-main">
         <div class="post-meta">
           <Avatar user={post} />
-          <a href={`/u/${post.author_id}`}>{post.username}</a>
+          <a href={`/u/${encodeURIComponent(post.username)}`}>{post.username}</a>
           <time dateTime={new Date(post.created_at).toISOString()}>
             {relativeTime(post.created_at, c.get("now"))}
           </time>
@@ -95,10 +95,11 @@ export function PostCard({ c, post }: { c: Context<Env>; post: Post }) {
           )}
         </div>
         <h2 class="post-title">
-          <a href={`/p/${post.id}`}>{post.title}</a>
+          <a href={`/p/${post.id}`}>{post.title}</a>{post.is_new && <span class="new-dot" aria-label="有新内容"> ·</span>}{!!post.pinned && <span class="tag">置顶</span>}{!!post.featured && <span class="tag">精华</span>}
         </h2>
         <p class="excerpt">{post.excerpt}</p>
         <LinkCard post={post} />
+        {!post.link && post.first_image && <img class="post-thumbnail" src={post.first_image} width="180" height="112" alt="正文配图" loading="lazy"/>}
         <Reactions c={c} kind="post" id={post.id}/>
         <div class="post-actions">
           <a href={`/p/${post.id}#replies`}>
@@ -110,14 +111,14 @@ export function PostCard({ c, post }: { c: Context<Env>; post: Post }) {
             .split("\n")
             .filter(Boolean)
             .map((t) => (
-              <span class="tag">#{t}</span>
+              <a class="tag" href={`/t/${encodeURIComponent(t)}`}>#{t}</a>
             ))}
         </div>
       </div>
     </article>
   );
 }
-function PostFields({
+export function PostFields({
   c,
   values,
   error,
@@ -358,179 +359,6 @@ export function Editor({
     </Layout>
   );
 }
-export function Latest({
-  c,
-  posts,
-  page,
-  sort,
-  category,
-}: {
-  c: Context<Env>;
-  posts: Post[];
-  page: number;
-  sort: string;
-  category: string;
-}) {
-  const user = c.get("user"),
-    db = c.get("db");
-  const stats = db
-    .prepare(
-      "SELECT (SELECT COUNT(*) FROM users WHERE banned=0) users,(SELECT COUNT(*) FROM posts p JOIN users u ON u.id=p.author_id WHERE p.status='public' AND u.banned=0) posts",
-    )
-    .get() as { users: number; posts: number };
-  return (
-    <Layout {...pageProps(c, "最新")} editor={!!user}>
-      <div class="page-heading">
-        <div>
-          <p class="eyebrow">BUILD TOGETHER</p>
-          <h1>每一次动手，都值得分享。</h1>
-          <p class="muted">好的链接、踩过的坑，还有你的下一次灵感。</p>
-        </div>
-        <a class="button" href="/new">
-          写长文 <span aria-hidden="true">↗</span>
-        </a>
-      </div>
-      <div class="layout">
-        <section class="feed">
-          {user ? (
-            <details class="panel quick-share">
-              <summary>贴一个链接，再说两句为什么推荐</summary>
-              <form
-                class="form"
-                method="post"
-                action="/new"
-                data-quick-share
-                data-editor-id="new"
-                data-user-id={user.id}
-              >
-                <Csrf value={c.get("csrf")} />
-                <input type="hidden" name="editorId" value="new" />
-                <PostFields c={c} values={blankPost()} quick />
-                <Field label="几句话" name="body">
-                  <textarea name="body" rows={3} />
-                </Field>
-                <div id="editor-status" role="status" />
-                <button class="button primary" type="submit">
-                  发布
-                </button>
-                <a href="/new">使用完整编辑器</a>
-              </form>
-            </details>
-          ) : (
-            <div class="panel quick-share">
-              <p>分享你的发现，让灵感继续生长。</p>
-              <a class="button primary" href="/login">
-                登录后分享
-              </a>
-            </div>
-          )}
-          <div class="feed-toolbar">
-            <div class="feed-tabs">
-              <a
-                href="/latest"
-                aria-current={sort !== "created" ? "page" : undefined}
-              >
-                最近活跃
-              </a>
-              <a
-                href="/latest?sort=created"
-                aria-current={sort === "created" ? "page" : undefined}
-              >
-                最新发布
-              </a>
-            </div>
-            <span class="muted">每页 30 条</span>
-          </div>
-          <div id="post-list" class="feed">
-            {posts.length ? (
-              posts.map((post) => <PostCard c={c} post={post} />)
-            ) : (
-              <Empty title="从第一个发现开始">
-                这里还没有帖子。分享一条链接，或写下你的学习笔记。
-              </Empty>
-            )}
-          </div>
-          <nav class="form-actions" aria-label="帖子分页">
-            {page > 1 && (
-              <a
-                class="button"
-                href={`/latest?page=${page - 1}&sort=${sort}&category=${category}`}
-              >
-                上一页
-              </a>
-            )}
-            {posts.length === 30 && (
-              <a
-                class="button"
-                href={`/latest?page=${page + 1}&sort=${sort}&category=${category}`}
-              >
-                下一页
-              </a>
-            )}
-          </nav>
-        </section>
-        <aside class="sidebar">
-          <section class="panel">
-            <h2>一起聊什么</h2>
-            <ul class="category-list">
-              <li>
-                <a href="/latest">全部板块</a>
-              </li>
-              {categories(db).map((cat) => (
-                <li>
-                  <a
-                    href={`/latest?category=${cat.id}`}
-                    aria-current={
-                      category === String(cat.id) ? "page" : undefined
-                    }
-                  >
-                    <span class={`category-dot ${cat.slug}`} />
-                    <span>
-                      {cat.name}
-                      <small>{cat.description}</small>
-                    </span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-          <section class="panel">
-            <h2>大家关注</h2>
-            <div class="tags">
-              {tags(db).map((t) => (
-                <span class="tag">#{t.name}</span>
-              ))}
-            </div>
-            {user && (
-              <details>
-                <summary>申请新标签</summary>
-                <form method="post" action="/tags/request">
-                  <Csrf value={c.get("csrf")} />
-                  <Field label="标签名" name="name" required />
-                  <button class="button">提交申请</button>
-                </form>
-              </details>
-            )}
-          </section>
-          <section class="panel">
-            <h2>社区正在生长</h2>
-            <p>
-              <strong>{stats.users}</strong> 位成员 ·{" "}
-              <strong>{stats.posts}</strong> 篇帖子
-            </p>
-            <p class="muted">
-              分享真实的经验，提出具体的问题。每一次尝试都能帮助别人少走一步弯路。
-            </p>
-          </section>
-          <section class="panel">
-            <h2>下一块积木</h2>
-            <p class="muted">作品墙、热门榜与搜索将在后续开放。</p>
-          </section>
-        </aside>
-      </div>
-    </Layout>
-  );
-}
 export function Detail({
   c,
   post,
@@ -562,7 +390,7 @@ export function Detail({
         <header class="detail-header">
           <div class="post-meta">
             <Avatar user={post} />
-            <a href={`/u/${post.author_id}`}>{post.username}</a>
+            <a href={`/u/${encodeURIComponent(post.username)}`}>{post.username}</a>
             <span class="category">{post.category_name}</span>
             <time>{relativeTime(post.created_at, c.get("now"))}</time>
             {post.updated_at && (

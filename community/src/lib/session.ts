@@ -89,6 +89,7 @@ export const sessions: MiddlewareHandler<Env> = async (c, next) => {
     )
   )
     return c.redirect("/settings?reset=1", 303);
+  if (user) db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(now,user.id);
   await next();
 };
 export function requireUser(c: Context<Env>) {

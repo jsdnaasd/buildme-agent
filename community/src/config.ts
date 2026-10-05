@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 export interface Config {
   port: number;
+  appVersion: string;
   dataDir: string;
   siteUrl: string;
   sessionSecret: string;
@@ -41,6 +42,7 @@ export function readConfig(env = process.env): Config {
     throw new Error("请填写全部 OSS 环境变量");
   return {
     port: Number(env.PORT ?? 3100),
+    appVersion: env.APP_VERSION ?? "0.4.3",
     dataDir: resolve(env.DATA_DIR ?? "./data"),
     siteUrl,
     sessionSecret,

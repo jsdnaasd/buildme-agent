@@ -29,6 +29,11 @@ export interface Post {
   vote_count: number;
   reply_count: number;
   voted: number;
+  hot_score: number;
+  featured: number;
+  pinned: number;
+  is_new?: boolean;
+  first_image?: string;
 }
 export interface PostInput {
   title: string;
@@ -103,13 +108,14 @@ export function validatePost(db: Db, input: PostInput, draft = false) {
   if (Object.keys(fields).length)
     throw new FormError("请检查标出的内容", fields);
 }
-const select = `SELECT p.*,u.username,u.avatar_url,c.name category_name,c.color category_color,
+export const postSelect = `SELECT p.*,u.username,u.avatar_url,c.name category_name,c.color category_color,
  (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) vote_count,
  (SELECT COUNT(*) FROM replies r JOIN users ru ON ru.id=r.author_id WHERE r.post_id=p.id AND r.deleted=0 AND r.status='public' AND ru.banned=0) reply_count,
- (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id AND v.user_id=@viewer) voted FROM posts p JOIN users u ON u.id=p.author_id JOIN categories c ON c.id=p.category_id`;
+ (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id AND v.user_id=@viewer) voted,
+ (SELECT i.thumb_url FROM image_refs ref JOIN images i ON i.id=ref.image_id WHERE ref.kind='post' AND ref.entity_id=p.id LIMIT 1) first_image FROM posts p JOIN users u ON u.id=p.author_id JOIN categories c ON c.id=p.category_id`;
 export function getPost(db: Db, id: number, viewer: User | null) {
   const post = db
-    .prepare(`${select} WHERE p.id=@id AND u.banned=0`)
+    .prepare(`${postSelect} WHERE p.id=@id AND u.banned=0`)
     .get({ id, viewer: viewer?.id ?? 0 }) as Post | undefined;
   if (!post) throw new FormError("帖子不存在", {}, 404);
   if (post.status === "deleted") throw new FormError("这条帖子已删除", {}, 404);
@@ -120,24 +126,6 @@ export function getPost(db: Db, id: number, viewer: User | null) {
   )
     throw new FormError("帖子不存在", {}, 404);
   return post;
-}
-export function latestPosts(
-  db: Db,
-  viewer: User | null,
-  sort: string,
-  page: number,
-  category: string,
-) {
-  const column = sort === "created" ? "created_at" : "last_activity";
-  return db
-    .prepare(
-      `${select} WHERE u.banned=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer)) AND (@category='' OR p.category_id=@category) ORDER BY p.${column} DESC,p.id DESC LIMIT 30 OFFSET @offset`,
-    )
-    .all({
-      viewer: viewer?.id ?? 0,
-      category,
-      offset: (page - 1) * 30,
-    }) as Post[];
 }
 export function canWrite(user: User, now: number) {
   if (user.muted_until && user.muted_until > now)
