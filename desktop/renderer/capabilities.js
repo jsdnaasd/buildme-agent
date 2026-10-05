@@ -17,7 +17,7 @@
     ["subagent_fork", "继承上下文的子 Agent", "从主对话的上下文分出子任务。"],
     ["sandbox", "沙箱", "通过执行环境限制命令可访问的资源。"],
   ];
-  window.createCapabilities = (api, { onChange, onExample }) => {
+  window.createCapabilities = (api, { onChange, onExample, onCompare }) => {
     const $ = (selector) => document.querySelector(selector);
     const dialog = $("#capabilities-dialog"), onboarding = $("#capability-onboarding");
     const cards = new Map();
@@ -63,7 +63,7 @@
           const card = document.createElement("article"); card.className = "capability-card capability-exclusive"; card.dataset.exclusive = id;
           const title = document.createElement("strong"); title.textContent = name;
           const copy = document.createElement("p"); copy.textContent = description;
-          const note = document.createElement("small"); note.textContent = "完全体专属 · 对比入口将在双引擎对比接通后开放";
+          const note = document.createElement("button"); note.type = "button"; note.className = "secondary-button"; note.textContent = "进入双引擎对比"; note.onclick = () => { dialog.close(); onCompare(`请结合当前工作区，说明你的「${name}」能力能如何帮助这个项目，并演示一个适合独立副本的前台任务。不要创建定时或后台任务。`); };
           card.append(title, copy, note); $("#capability-exclusive").append(card);
         }
       }

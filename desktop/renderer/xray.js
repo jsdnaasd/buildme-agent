@@ -371,8 +371,8 @@
         if (event.type === "llm.request") turn.usage.modelCalls += 1;
         if (event.type === "tool.call") turn.usage.toolCalls += 1;
         if (event.type === "llm.response" && event.usage) {
-          turn.usage.inputTokens += event.usage.input;
-          turn.usage.outputTokens += event.usage.output;
+          turn.usage.inputTokens = (turn.usage.inputTokens ?? 0) + event.usage.input;
+          turn.usage.outputTokens = (turn.usage.outputTokens ?? 0) + event.usage.output;
         }
         turn.usage.durationMs = Math.max(0, new Date(event.at) - new Date(turn.startedAt));
       } else {
@@ -409,7 +409,7 @@
       updateSelect(); schedule();
       if (!id) return;
       try {
-        const items = await api.xrayTurns(id);
+        const items = await api.xrayTurns(id, edition === "full" ? "dsh" : "pi");
         if (scope !== generation) return;
         for (const turn of items) if (!turn.parentTurnId && !summaries.has(turn.id)) summaries.set(turn.id, turn);
         updateSelect();

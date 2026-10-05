@@ -19,6 +19,7 @@ export interface TraceTurn {
 	events: TraceEvent[];
 	usage: TraceUsage;                   // 本回合累计
 	errorMessage?: string;
+	finalAnswer?: string;
 }
 
 export interface TraceFidelity {
@@ -41,9 +42,10 @@ export interface PromptSegment {
 }
 
 export interface TraceUsage {
-	inputTokens: number;
-	outputTokens: number;
+	inputTokens?: number;
+	outputTokens?: number;
 	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
 	estimatedCostCny?: number;           // 有单价信息时填写，没有就不填
 	modelCalls: number;
 	toolCalls: number;
@@ -56,7 +58,7 @@ export type TraceEvent =
 	    context: ContextBreakdown;       // 本次请求的上下文构成
 	    raw?: unknown; rawTruncated?: boolean }                  // 脱敏后的原始请求，可能被截断，见 §4.6
 	| { type: "llm.response"; id: string; at: string; round: number; durationMs: number;
-	    stopReason?: string; usage?: { input: number; output: number; cacheRead?: number };
+	    stopReason?: string; usage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
 	    textPreview: string; toolCalls: { toolCallId: string; name: string }[] }
 	| { type: "tool.call"; id: string; at: string; round: number; toolCallId: string;
 	    name: string; args: unknown; capabilityId?: string; parallelGroup?: number }
@@ -84,7 +86,7 @@ export interface ContextBreakdown {
 	readonly toolResults: number;
 	readonly summary: number;            // 压缩摘要
 	readonly total: number;
-	readonly limit: number;              // 模型上下文窗口减去回复预留
+	readonly limit?: number;              // 模型上下文窗口减去回复预留
 }
 
 export type TraceEventInput = TraceEvent extends infer E
@@ -115,9 +117,10 @@ export function updateTraceUsage(usage: TraceUsage, event: TraceEvent): void {
 	if (event.type === "llm.request") usage.modelCalls += 1;
 	if (event.type === "tool.call") usage.toolCalls += 1;
 	if (event.type === "llm.response" && event.usage) {
-		usage.inputTokens += event.usage.input;
-		usage.outputTokens += event.usage.output;
-		usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + (event.usage.cacheRead ?? 0);
+		usage.inputTokens = (usage.inputTokens ?? 0) + event.usage.input;
+		usage.outputTokens = (usage.outputTokens ?? 0) + event.usage.output;
+		if (event.usage.cacheRead !== undefined) usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + event.usage.cacheRead;
+		if (event.usage.cacheWrite !== undefined) usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + event.usage.cacheWrite;
 	}
 }
 

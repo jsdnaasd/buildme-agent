@@ -2,7 +2,7 @@ import { redactDurable } from "./redact.js";
 
 export const TRACE_HIDDEN = "«已隐藏»";
 const SENSITIVE_KEY = /authorization|api[_-]?key|token|secret|password/i;
-const TOKEN_METRICS = new Set(["inputTokens", "outputTokens", "cacheReadTokens", "estTokens", "tokensBefore", "tokensAfter", "maxTokens", "totalTokens"]);
+const TOKEN_METRICS = new Set(["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "estTokens", "tokensBefore", "tokensAfter", "maxTokens", "totalTokens"]);
 
 export function redactTrace<T>(value: T, secrets: readonly (string | undefined)[] = []): T {
 	const known = [...secrets, process.env.BUILDME_ACTIVE_API_KEY, process.env.DEEPSEEK_API_KEY];

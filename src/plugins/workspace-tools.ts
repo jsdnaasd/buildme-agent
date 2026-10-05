@@ -1,3 +1,4 @@
+import { confineCompareCommand, shellQuote } from "../core/compare-policy.js";
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
@@ -134,6 +135,14 @@ function adaptPiTool<TSchemaValue extends TSchema, TDetails>(
 		execute: async (toolCallId, params: Static<TSchemaValue>, signal, onUpdate) => {
 			const cwd = ctx.tools.currentScope()?.workspacePath ?? process.cwd();
 			const env = new NodeExecutionEnv({ cwd });
+			const policy = ctx.tools.currentScope()?.comparePolicy;
+			if (policy && tool.name === "bash") {
+				const exec = env.exec.bind(env);
+				env.exec = (command, options, context) => {
+					if (policy.readOnly) throw new Error("只读对比禁止命令执行。");
+					return exec(confineCompareCommand(["bash", "-c", command], policy.workspaceRoot).map(shellQuote).join(" "), options, context);
+				};
+			}
 			const piContext: PiContext = signal ? withAbortSignal(signal, TODO_CONTEXT) : TODO_CONTEXT;
 			try {
 				return await tool.execute(

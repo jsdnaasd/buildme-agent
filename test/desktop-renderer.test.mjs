@@ -140,7 +140,7 @@ async function rendererFixture(overrides = {}) {
     document,
     Error,
     String,
-    window: { matchMedia: vi.fn(() => media), personalAgent: api, createAchievements: () => ({}), createCapabilities: () => ({ sync() {}, guide() {} }), createXray: () => xray },
+    window: { matchMedia: vi.fn(() => media), personalAgent: api, createAchievements: () => ({}), createComparisons: () => ({ open() {} }), createCapabilities: () => ({ sync() {}, guide() {} }), createXray: () => xray },
   });
   const source = await readFile(new URL("../desktop/renderer/renderer.js", import.meta.url), "utf8");
   vm.runInContext(source, context, { filename: "desktop/renderer/renderer.js" });

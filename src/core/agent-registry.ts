@@ -101,6 +101,7 @@ export class AgentRegistry extends Service {
 	}
 
 	async run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		if (options.comparePolicy) options = { ...options, comparePolicy: Object.freeze({ ...options.comparePolicy }) };
 		if (options.capabilities !== undefined) options = { ...options, capabilities: resolveCapabilities(options.capabilities) };
 		options.signal?.throwIfAborted();
 		const { sessionId, ...runOptions } = options;

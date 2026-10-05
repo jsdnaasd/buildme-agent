@@ -197,6 +197,8 @@ export interface ToolCallRequest {
 	readonly toolName: string;
 	readonly args: unknown;
 	readonly workspacePath?: string;
+	readonly compareGroupId?: string;
+	readonly comparePolicy?: import("./core/compare-policy.js").ComparePolicy;
 	readonly permissionMode?: AgentPermissionMode;
 }
 

@@ -1,3 +1,4 @@
+import { createCompareService } from "./compare.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -365,6 +366,7 @@ function approvalPayload(request, requestId) {
   const source = request && typeof request === "object" ? request : {};
   return {
     requestId,
+    ...(source.source || compareService?.source(source.sessionId)?.source ? { source: source.source ?? compareService.source(source.sessionId).source } : {}),
     ...(optionalString(source.sessionId) ? { sessionId: source.sessionId.trim() } : {}),
     ...(optionalString(source.toolCallId) ? { toolCallId: source.toolCallId.trim() } : {}),
     toolName: optionalString(source.toolName) ?? "工具",
@@ -463,7 +465,8 @@ async function ensureDshEngine(config) {
         sendToWindow("desktop:stream", { type: "background-done", sessionId });
         void notifyBackgroundTurn(sessionId);
       },
-      onApproval: async (request) => requestToolApproval({ ...request, permissionMode: (await getConfig()).permissionMode }),
+      onApproval: requestToolApproval,
+      onTrace: acceptTrace,
       onLog: (line) => { if (!line.includes("reasoning")) console.error(`[DSH] ${line}`); },
     });
   }
@@ -567,6 +570,7 @@ async function fullSend(prompt, requestedSession) {
       text: prompt,
       cwd: config.workspacePath ?? app.getPath("home"),
       permissionMode: config.permissionMode,
+      recordRawRequests: config.recordRawRequests,
     });
   } finally {
     fullRunPending = false;
@@ -575,7 +579,28 @@ async function fullSend(prompt, requestedSession) {
   }
   await recordFullSession(result.sessionId, prompt);
   if (result.reason === "error") throw new Error(result.error || "DSH 运行失败。");
-  return { sessionId: result.sessionId, text: result.text, cancelled: result.reason === "cancelled" };
+  return { sessionId: result.sessionId, text: result.text, cancelled: result.reason === "aborted" };
+}
+
+let compareService;
+function getComparisons() {
+  return compareService ??= createCompareService({
+    root: appDataPath("comparisons"), applicationRoot: resolve(here, ".."), config: getConfig,
+    keyFor: resolvedApiKey, runtime: ensureHarness, service: findRuntimeService, traceStore: getTraceStore, onTrace: acceptTrace,
+    approval: requestToolApproval, notify: (event) => sendToWindow("desktop:compare", event), learning: recordLearning,
+  });
+}
+
+function acceptTrace(notification) {
+      try {
+        const safe = redactTrace(notification);
+        compareService?.trace(safe);
+        void getTraceStore().accept(safe);
+        if (safe.type === "turn-end") void recordLearning({ type: "turn", turn: safe.turn });
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
+      } catch {
+        console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
+      }
 }
 
 function ensureHarness() {
@@ -586,6 +611,7 @@ function ensureHarness() {
     const profile = await loadProfile(await ensureProfile());
     const runtime = await createApp(profile);
     stopStream = runtime.ctx.on("piharness/agent-event", (sessionId, event) => {
+      if (compareService?.ownsSession(sessionId)) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         mainWindow.webContents.send("desktop:stream", { type: "text", sessionId, delta: event.assistantMessageEvent.delta });
@@ -597,14 +623,7 @@ function ensureHarness() {
     });
     stopApprovals = runtime.ctx.on("piharness/tool-approval-request", requestToolApproval);
     stopTrace = runtime.ctx.on("piharness/trace", (notification) => {
-      try {
-        const safe = redactTrace(notification);
-        void getTraceStore().accept(safe);
-        if (safe.type === "turn-end") void recordLearning({ type: "turn", turn: safe.turn });
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
-      } catch {
-        console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
-      }
+      acceptTrace(notification);
     });
     harnessApp = runtime;
     return runtime;
@@ -937,9 +956,34 @@ ipcMain.handle("desktop:messages", async (_event, sessionId) => {
   }
   return sessionMessages(id);
 });
-ipcMain.handle("desktop:xray-turns", async (_event, sessionId) => {
+ipcMain.handle("desktop:compare-list", () => getComparisons().list());
+ipcMain.handle("desktop:compare-create", (_event, payload) => getComparisons().create(payload));
+ipcMain.handle("desktop:compare-get", (_event, id) => getComparisons().details(requireSessionId(id)));
+ipcMain.handle("desktop:compare-send", (_event, id, prompt) => getComparisons().coordinator.send(requireSessionId(id), parsePrompt(prompt)));
+ipcMain.handle("desktop:compare-stop", async (_event, id) => {
+  id = requireSessionId(id);
+  for (const [requestId, pending] of pendingApprovals) if (compareService?.source(pending.sessionId)?.groupId === id) settleApproval(requestId, { decision: "cancelled" });
+  await getComparisons().coordinator.stop(id);
+});
+ipcMain.handle("desktop:compare-delete", (_event, id) => getComparisons().remove(requireSessionId(id)));
+ipcMain.handle("desktop:compare-adopt", async (_event, id, side, token) => {
+  id = requireSessionId(id);
+  const { group } = await getComparisons().details(id);
+  const preview = group.differences[side];
+  if (!preview || preview.token !== token) throw new Error("请先查看最新的完整改动清单。");
+  const choice = await dialog.showMessageBox(mainWindow, { type: "warning", title: "采用对比改动", message: `将 ${preview.changes.length} 项改动写入真实工作区`, detail: `${group.workspace.source}\n${preview.changes.map((c) => `${c.kind} ${c.path}`).join("\n")}`, buttons: ["取消", "确认采用"], defaultId: 0, cancelId: 0 });
+  if (choice.response !== 1) return { applied: [], conflicts: [], cancelled: true };
+  return getComparisons().adopt(id, side, token);
+});
+ipcMain.handle("desktop:compare-xray-opened", async (_event, id) => {
+  const { group, metrics } = await getComparisons().details(requireSessionId(id));
+  const left = metrics.left?.tools, right = metrics.right?.tools;
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "compare-xray-opened", toolsDiffer: Boolean(left && right && JSON.stringify(left) !== JSON.stringify(right)), ...(group.rounds.at(-1)?.runs.left.turnIds[0] ? { turnId: group.rounds.at(-1).runs.left.turnIds[0] } : {}) });
+});
+ipcMain.handle("desktop:xray-turns", async (_event, sessionId, engine) => {
   const config = await getConfig();
-  return getTraceStore().turns(config.edition === "full" ? "dsh" : "pi", requireSessionId(sessionId));
+  if (engine !== undefined && engine !== "pi" && engine !== "dsh") throw new Error("未知的引擎。");
+  return getTraceStore().turns(engine ?? (config.edition === "full" ? "dsh" : "pi"), requireSessionId(sessionId));
 });
 ipcMain.handle("desktop:xray-turn", (_event, turnId) => getTraceStore().turn(requireSessionId(turnId)));
 ipcMain.handle("desktop:xray-prompt-source", async (_event, turnId, segmentIndex, open) => {
@@ -1144,6 +1188,7 @@ app.on("before-quit", (event) => {
   const pendingHarness = harnessPromise;
   Promise.allSettled([stopStream, stopApprovals].map((stop) => Promise.resolve().then(() => stop?.())))
     .then(async () => {
+      await compareService?.close();
       await Promise.allSettled([(harnessApp ?? await pendingHarness)?.stop(), stopDshEngine()]);
       stopTrace?.();
       await traceStore?.flush();

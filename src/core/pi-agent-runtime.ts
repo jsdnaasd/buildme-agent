@@ -25,6 +25,8 @@ export interface AgentRunOptions {
 	readonly sessionId?: string;
 	readonly connection?: AgentConnection;
 	readonly workspacePath?: string;
+	readonly compareGroupId?: string;
+	readonly comparePolicy?: import("./compare-policy.js").ComparePolicy;
 	readonly permissionMode?: AgentPermissionMode;
 	readonly edition?: AgentEdition;
 	readonly recordRawRequests?: boolean;
@@ -261,6 +263,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 	}
 
 	run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		if (options.comparePolicy) options = { ...options, comparePolicy: Object.freeze({ ...options.comparePolicy }) };
 		if (options.capabilities !== undefined) options = { ...options, capabilities: resolveCapabilities(options.capabilities) };
 		if (this.closed) return Promise.reject(new Error("Agent runtime is shutting down."));
 		if (options.sessionId && this.pendingSessions.has(options.sessionId)) {
@@ -335,6 +338,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				});
 			});
 			traceAttempt(() => trace?.beginTurn({
+				...(options.compareGroupId ? { compareGroupId: options.compareGroupId } : {}),
 				engine: "pi", sessionId, turnIndex: previousMessages.filter((message) => message.role === "user").length + 1,
 				...(parent ? { parentTurnId: parent.collector.id, parentToolCallId: parent.toolCallId } : {}),
 				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
@@ -353,7 +357,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 			const traceStream: StreamFn = (model, context, streamOptions) => {
 				if (!compact) traceAttempt(() => {
 					const usage = contextBreakdown(context, contextLimit);
-					if (usage.total > usage.limit) trace?.event({ type: "context.overflow", estTokens: usage.total, limit: usage.limit });
+					if (usage.total > contextLimit) trace?.event({ type: "context.overflow", estTokens: usage.total, limit: contextLimit });
 				});
 				return observedStream(model, context, streamOptions);
 			};
@@ -376,6 +380,8 @@ export class PiAgentLoop extends Service implements AgentFactory {
 			const edition = options.edition ?? "standard";
 			const tools = [...this.ctx.tools.list({
 				workspacePath, permissionMode, edition, connection,
+				...(options.comparePolicy ? { comparePolicy: options.comparePolicy } : {}),
+				...(options.compareGroupId ? { compareGroupId: options.compareGroupId } : {}),
 				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
 				recordRawRequests: options.recordRawRequests !== false,
 				...(trace ? { trace } : {}),
@@ -401,6 +407,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 							toolName: toolCall.name,
 							args: redactDurable(args, [requestApiKey]),
 							workspacePath,
+							...(options.comparePolicy ? { comparePolicy: options.comparePolicy } : {}),
 							permissionMode,
 						},
 						signal,
@@ -450,7 +457,7 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				error: agent.state.errorMessage ?? null,
 			});
 			this.ctx.emit("piharness/run-completed", result);
-			traceAttempt(() => trace?.endTurn("done"));
+			traceAttempt(() => trace?.endTurn("done", undefined, result.text));
 			childResult = result.text;
 			childFailed = false;
 			return result;

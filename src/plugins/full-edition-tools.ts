@@ -205,6 +205,8 @@ export const fullEditionTools = definePlugin(
 			return ctx.agents.run(prompt, {
 				connection: scope.connection, workspacePath: scope.workspacePath, permissionMode: scope.permissionMode,
 				edition: "standard", recordRawRequests: scope.recordRawRequests !== false,
+				...(scope.comparePolicy ? { comparePolicy: scope.comparePolicy } : {}),
+				...(scope.compareGroupId ? { compareGroupId: scope.compareGroupId } : {}),
 				...(scope.capabilities === undefined ? {} : { capabilities: childCapabilities(scope.capabilities) }),
 				...(signal ? { signal } : {}),
 				...(scope.trace ? { parentTrace: { collector: scope.trace, kind, toolCallId, ...(stepIndex === undefined ? {} : { stepIndex }) } } : {}),

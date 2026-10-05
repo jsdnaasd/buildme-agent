@@ -138,7 +138,7 @@
           const chart = node("div", "xray-context-bar");
           chart.setAttribute("role", "img");
           chart.setAttribute("aria-label", PARTS.map(([key, label]) => `${label} ${data[key]}`).join("，") + `；上限 ${limitKnown ? data.limit : "未知"}`);
-          const denominator = Math.max(data.total, data.limit);
+          const denominator = Math.max(data.total, limitKnown ? data.limit : 0);
           PARTS.forEach(([key, label], index) => {
             const part = node("span", `xray-swatch xray-color-${index}`);
             part.style.width = `${denominator ? data[key] / denominator * 100 : 0}%`;
@@ -202,7 +202,7 @@
   }
 
   function raw(host, api) {
-    host.append(node("p", "xray-inspect-intro", "API Key 等敏感信息已隐藏。这里显示模型适配器收到的请求快照（pi-context），不等同于最终 HTTP 报文。"));
+    host.append(node("p", "xray-inspect-intro", "API Key 等敏感信息已隐藏。这里显示模型适配器收到的请求快照（Pi context / DSH GenerateOptions），不等同于最终 HTTP 报文。"));
     const label = node("label", "xray-raw-label", "选择模型调用");
     const select = node("select", "xray-raw-select");
     label.append(select);

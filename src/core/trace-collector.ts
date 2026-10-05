@@ -156,12 +156,13 @@ export class TraceCollector {
 		}
 	}
 
-	endTurn(status: Exclude<TraceTurn["status"], "running">, errorMessage?: string): void {
+	endTurn(status: Exclude<TraceTurn["status"], "running">, errorMessage?: string, finalAnswer?: string): void {
 		if (!this.turn) return;
 		this.turn.status = status;
 		this.turn.endedAt = new Date().toISOString();
 		this.turn.usage.durationMs = Date.parse(this.turn.endedAt) - Date.parse(this.turn.startedAt);
 		if (errorMessage !== undefined) this.turn.errorMessage = errorMessage;
+		if (finalAnswer !== undefined) this.turn.finalAnswer = finalAnswer;
 		const turn = redactTrace(this.turn, this.secrets);
 		this.turn = undefined;
 		traceAttempt(() => this.publish({ type: "turn-end", turn }));

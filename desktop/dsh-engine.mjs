@@ -1,3 +1,4 @@
+import { confineCompareCommand } from "../dist/core/compare-policy.js";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -109,7 +110,7 @@ async function writeIfChanged(path, content) {
  * own cordis.patch.yml stays the user's layer; the overlay is regenerated on
  * every start so app updates take effect.
  */
-export async function prepareDshHome({ dshHome, bridgePath, systemPrompt, timeZone, piAiProviders }) {
+export async function prepareDshHome({ dshHome, bridgePath, systemPrompt, timeZone, piAiProviders, processIsolated = false }) {
   const profileDir = join(dshHome, "profiles", PROFILE_NAME);
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
   await writeIfChanged(join(profileDir, "package.json"), `${JSON.stringify({
@@ -152,6 +153,10 @@ export async function prepareDshHome({ dshHome, bridgePath, systemPrompt, timeZo
       ],
     },
   ];
+  if (processIsolated) overlay.push(
+    { id: "bash-sandbox", disabled: true },
+    { insert: [{ id: "buildme-confined-bash", name: new URL("./dsh-confined-shell.mjs", import.meta.url).href, config: { timeoutMs: 60000 } }] },
+  );
   const overlayPath = join(dshHome, "buildme-overlay.patch.yml");
   await writeIfChanged(overlayPath, yaml.dump(overlay, { lineWidth: -1, noRefs: true }));
   return { profileDir, overlayPath };
@@ -196,10 +201,13 @@ export class DshEngine {
 
   async launch() {
     const { dshHome, bridgePath, systemPrompt, cwd, piAiProviders } = this.options;
-    const { overlayPath } = await prepareDshHome({ dshHome, bridgePath, systemPrompt, piAiProviders });
+    const { overlayPath } = await prepareDshHome({ dshHome, bridgePath, systemPrompt, piAiProviders, processIsolated: Boolean(this.options.isolationRoot) });
+    if (this.options.isolationRoot) await mkdir(join(this.options.isolationRoot, "temp"), { recursive: true, mode: 0o700 });
     const nodePath = this.options.nodePath ?? process.execPath;
     const launcher = this.options.launcherPath ?? dshLauncherPath();
-    const child = spawn(nodePath, [launcher, "--profile", PROFILE_NAME, "--patch", overlayPath], {
+    const argv = [nodePath, launcher, "--profile", PROFILE_NAME, "--patch", overlayPath];
+    const confined = this.options.isolationRoot ? confineCompareCommand(argv, this.options.isolationRoot) : argv;
+    const child = spawn(confined[0], confined.slice(1), {
       cwd,
       env: {
         ...process.env,
@@ -208,6 +216,7 @@ export class DshEngine {
         DSH_HOME: dshHome,
         DSH_TELEMETRY_DISABLED: "1",
         NODE_USE_ENV_PROXY: "1",
+        ...(this.options.isolationRoot ? { BUILDME_COMPARE_ISOLATION_ROOT: this.options.isolationRoot, TMPDIR: join(this.options.isolationRoot, "temp"), TMP: join(this.options.isolationRoot, "temp"), TEMP: join(this.options.isolationRoot, "temp") } : {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -227,11 +236,12 @@ export class DshEngine {
     transport.onNotification((method, params) => {
       if (method === "stream") this.options.onStream?.(params);
       else if (method === "status") this.options.onStatus?.(params);
+      else if (method === "trace") this.options.onTrace?.(params);
     });
     transport.onRequest(async (method, params) => {
       if (method !== "approval/request") throw new Error(`unknown BuildMe desktop method: ${method}`);
-      const allow = (await this.options.onApproval?.(params)) === true;
-      return { allow };
+      const answer = await this.options.onApproval?.(params);
+      return typeof answer === "object" ? { allow: false, ...answer } : { allow: answer === true };
     });
     transport.start();
 

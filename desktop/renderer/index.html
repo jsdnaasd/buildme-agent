@@ -34,6 +34,7 @@
         </section>
 
         <footer class="sidebar-footer">
+          <button id="comparisons" class="sidebar-action" type="button"><span aria-hidden="true">⇄</span><span>双路对比</span></button>
           <button id="achievements" class="sidebar-action" type="button"><span aria-hidden="true">🏅</span><span>成就</span></button>
           <button id="my-agent" class="sidebar-action" type="button"><span aria-hidden="true">🧩</span><span>我的 Agent</span></button>
           <button id="settings" class="sidebar-action" type="button">
@@ -234,12 +235,31 @@
       <p id="capability-onboarding-error" role="alert"></p>
     </dialog>
 
+    <dialog id="compare-dialog" class="compare-dialog" aria-labelledby="compare-title">
+      <header><div><h2 id="compare-title">双路对比</h2><p>在同一工作区基线上，对照回答、工具与执行过程。</p></div><button id="compare-new" class="secondary-button" type="button">新对比</button><button id="compare-close" class="icon-button" aria-label="关闭对比">×</button></header>
+      <nav id="compare-history" aria-label="对比历史"></nav>
+      <p id="compare-status" role="status"></p>
+      <section id="compare-new-form">
+        <label>对比方式 <select id="compare-kind"><option value="harness">同模型 · Pi 与 DSH</option><option value="model">同 Pi 能力 · 两个模型</option></select></label>
+        <label>模型连接 <select id="compare-left-connection"></select></label>
+        <label id="compare-right-choice" hidden>右侧模型连接 <select id="compare-right-connection"></select></label>
+        <label><input id="compare-pi-all" type="checkbox" /> 仅本次对比开启 Pi 全部能力</label>
+        <p>两侧默认使用同一连接。模型对比需要选择两条连接；不会自动换用其他付费模型。排除 .git、node_modules、符号链接与超过 50 MB 的文件；超过 300 MB 时强制只读。</p>
+        <button id="compare-create" class="primary-button" type="button">建立独立副本</button>
+      </section>
+      <div id="compare-content"></div>
+      <div id="compare-changes" hidden></div><div id="compare-timeline" hidden></div>
+      <footer><button id="compare-inspect" type="button" class="secondary-button" hidden>并列 X 光</button><button id="compare-delete" type="button" class="secondary-button" hidden>删除对比</button></footer>
+      <form id="compare-send-form" hidden><label for="compare-prompt">两侧发送相同的问题</label><textarea id="compare-prompt" rows="3" placeholder="描述你想让两个 Agent 完成的任务…"></textarea><button id="compare-send" class="primary-button" type="submit">同时运行</button><button id="compare-stop" type="button" class="secondary-button" hidden>停止两侧</button></form>
+    </dialog>
+
     <script src="./knowledge.js"></script>
     <script src="./xray-help.js"></script>
     <script src="./xray-inspect.js"></script>
     <script src="./xray.js"></script>
     <script src="./capabilities.js"></script>
     <script src="./achievements.js"></script>
+    <script src="./compare.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>

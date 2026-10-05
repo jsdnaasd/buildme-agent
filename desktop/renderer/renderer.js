@@ -84,7 +84,9 @@ const approvalQueue = [];
 const xray = window.createXray(api);
 let sessionSelection = 0;
 window.createAchievements(api, { onTurn: (turn) => xray.openTurn(turn) });
+const comparisons = window.createComparisons(api, { onTurn: (turn) => xray.openTurn(turn) });
 const capabilities = window.createCapabilities(api, {
+  onCompare: (example) => comparisons.open(example),
   onChange: mergeState,
   onExample: (text) => { elements.prompt.value = text; autoSizePrompt(); elements.prompt.focus(); },
 });
@@ -567,7 +569,7 @@ function approvalSummary(request) {
 function showNextApproval() {
   if (currentApproval || !approvalQueue.length) return;
   currentApproval = approvalQueue.shift();
-  elements.approvalTool.textContent = currentApproval.toolName || currentApproval.name || "工具";
+  elements.approvalTool.textContent = `${currentApproval.source ? `[${currentApproval.source}] ` : ""}${currentApproval.toolName || currentApproval.name || "工具"}`;
   elements.approvalArguments.textContent = approvalSummary(currentApproval);
   elements.approvalDialog.showModal();
   $("#allow-approval").focus();

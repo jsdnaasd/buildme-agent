@@ -1,3 +1,4 @@
+import { compareDenial } from "./compare-policy.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -12,6 +13,8 @@ const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 /** Immutable request scope captured by every tool execution in one Pi run. */
 export interface ToolExecutionScope {
 	readonly workspacePath: string;
+	readonly compareGroupId?: string;
+	readonly comparePolicy?: import("./compare-policy.js").ComparePolicy;
 	readonly permissionMode: "ask" | "workspace-write" | "bypass";
 	readonly edition?: AgentEdition;
 	readonly connection?: import("../contracts.js").AgentConnection;
@@ -66,7 +69,13 @@ export class ToolRegistry extends Service {
 				return {
 					...tool,
 					execute: (...args: Parameters<AgentTool["execute"]>) =>
-						this.executionScope.run(scope, () => tool.execute(...args)),
+						this.executionScope.run(scope, () => {
+							if (scope.comparePolicy) {
+								const denied = compareDenial(scope.comparePolicy, tool.name, args[1]);
+								if (denied) throw new Error(denied);
+							}
+							return tool.execute(...args);
+						}),
 				} satisfies AgentTool;
 			})
 			.sort((left, right) => left.name.localeCompare(right.name));
@@ -82,6 +91,10 @@ export class ToolRegistry extends Service {
 	}
 
 	async authorize(request: ToolCallRequest, signal?: AbortSignal): Promise<ToolGateDecision> {
+		if (request.comparePolicy) {
+			const denied = compareDenial(request.comparePolicy, request.toolName, request.args);
+			if (denied) return { allow: false, source: "policy", reason: denied };
+		}
 		let source: "user" | undefined;
 		for (const gate of this.gates.values()) {
 			if (signal?.aborted) {
