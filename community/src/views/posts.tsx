@@ -10,6 +10,8 @@ import {
   type PostInput,
 } from "../lib/posts.js";
 import type { Heading } from "../lib/markdown.js";
+import { WorkFields, WorkInfo } from "./works.js";
+import { getWork } from "../lib/works.js";
 import type { Reply } from "../lib/interactions.js";
 import { ReplyCard, ReplyForm, Reactions, Bookmark } from "./interactions.js";
 import type { FormError } from "../lib/validation.js";
@@ -241,6 +243,8 @@ export function Editor({
         <input type="hidden" name="draftId" value={values.draftId} />
         <input type="hidden" name="editorId" value={editorId} />
         <PostFields c={c} values={values} error={error} />
+        <section class="panel" data-work-fields hidden={values.category !== "4"}><WorkFields c={c} values={values.work} error={error}/></section>
+        <noscript><a href="/new?category=4">前往作品发布表单</a></noscript>
         <div class="editor-tabs" role="tablist" aria-label="编辑与预览">
           <button
             type="button"
@@ -377,7 +381,8 @@ export function Detail({
   clearDraft?: string;
 }) {
   const user = c.get("user"),
-    toc = JSON.parse(post.toc) as Heading[];
+    toc = JSON.parse(post.toc) as Heading[],
+    work = getWork(c.get("db"), post.id, user);
   return (
     <Layout {...pageProps(c, post.title)}>
       {clearDraft && (
@@ -407,6 +412,7 @@ export function Detail({
             <p class="notice">审核中：管理员通过后会向所有人公开。</p>
           )}
         </header>
+        {work && <WorkInfo work={work}/>}
         <LinkCard post={post} />
         <div class="prose-layout">
           <div class="prose" dangerouslySetInnerHTML={{ __html: post.html }} />

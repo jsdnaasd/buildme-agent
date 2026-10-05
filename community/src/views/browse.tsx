@@ -16,6 +16,8 @@ import {
 import { Layout, Csrf, Avatar, Empty, Icon } from "./layout.js";
 import { pageProps, Field } from "./forms.js";
 import { PostCard, PostFields, relativeTime } from "./posts.js";
+import { homeWorks, selectedWorks, userWorks } from "../lib/works.js";
+import { WorkCard, WorkStrip } from "./works.js";
 
 function queryUrl(
   path: string,
@@ -222,6 +224,7 @@ export function Feed({
       <div class="layout browse-layout">
         <section class="feed">
           <QuickShare c={c} />
+          <WorkStrip works={homeWorks(c.get("db"), c.get("user"), c.get("now"))} />
           <nav class="category-filters" aria-label="按板块筛选">
             <a
               href={queryUrl(filterPath, { ...filterOptions, category: "" })}
@@ -498,6 +501,7 @@ export function ProfilePage({
 }) {
   const ownProfile = c.get("user")?.id === profile.id;
   const profileUrl = `/u/${encodeURIComponent(profile.username)}`;
+  const profileWorks = tab === "works" ? userWorks(c.get("db"), c.get("user"), profile.id) : [];
   const joined = new Date(profile.created_at);
   return (
     <Layout {...pageProps(c, profile.username)}>
@@ -560,9 +564,7 @@ export function ProfilePage({
       </div>
       <section class="feed profile-feed">
         {tab === "works" ? (
-          <Empty title="作品展示即将开放">
-            作品墙开放后，你用 Agent 做出的作品会展示在这里。
-          </Empty>
+          profileWorks.length ? <div class="work-grid">{profileWorks.map((work) => <WorkCard work={work} />)}</div> : <Empty title="还没有发布作品">把想法做出来，也把成果带到这里。</Empty>
         ) : tab === "replies" ? (
           replies.length ? (
             replies.map((reply) => (
@@ -643,6 +645,7 @@ export function TagsPage({
 
 export function DownloadPage({ c }: { c: Context<Env> }) {
   const config = c.get("config");
+  const featuredWorks = selectedWorks(c.get("db"), c.get("user"), 3);
   return (
     <Layout {...pageProps(c, "下载 BuildMe")}>
       <section class="download-hero">
@@ -701,7 +704,7 @@ export function DownloadPage({ c }: { c: Context<Env> }) {
       </section>
       <section class="download-works">
         <h2>大家用 BuildMe 做了什么</h2>
-        <p class="muted">作品墙开放后，这里会展示社区的精选作品。</p>
+        {featuredWorks.length ? <div class="work-grid download-work-grid">{featuredWorks.map((work) => <WorkCard work={work} />)}</div> : <Empty title="精选作品正在整理中">先去<a href="/works">作品墙</a>看看大家的新发现。</Empty>}
       </section>
     </Layout>
   );

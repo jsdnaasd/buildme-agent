@@ -2,6 +2,7 @@ import type { Hono, Context } from "hono";
 import type { Env, User } from "../types.js";
 import { Layout, Csrf, Empty } from "../views/layout.js";
 import { pageProps } from "../views/forms.js";
+import { getWork, editWork, prepareCover, writeWork } from "../lib/works.js";
 import { replyRows, maxFloor, notifyMentions } from "../lib/interactions.js";
 import {
   Editor,
@@ -53,7 +54,7 @@ function showEditorError(
 export function posts(app: Hono<Env>, remote: SafeFetcher) {
   app.get("/new", (c) => {
     requireUser(c);
-    return c.html(<Editor c={c} />);
+    return c.html(<Editor c={c} values={{...blankPost(),category:c.req.query("category") ?? "1"}} />);
   });
   app.post("/preview", async (c) => {
     requireUser(c);
@@ -204,6 +205,8 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         throw new FormError("每帖最多 30 张图片", {
           body: "每帖最多 30 张图片",
         });
+      const work = old ? getWork(db,old.id,user) : undefined;
+      const coverId = values.category === "4" ? await prepareCover(db,c.get("storage"),user,values.work,now,work) : null;
       const tagNames = values.tags
         .map(
           (id) =>
@@ -228,6 +231,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
               category: old.category_id,
               link: old.link,
               tags: old.tags_text,
+              work: work ?? null,
             }),
             now,
           );
@@ -282,6 +286,12 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         db.prepare("DELETE FROM post_tags WHERE post_id=?").run(id);
         for (const tag of values.tags)
           db.prepare("INSERT INTO post_tags VALUES (?,?)").run(id, tag);
+        if (coverId) writeWork(db,id,values.work,coverId);
+        else if (work) {
+          db.prepare('DELETE FROM work_harnesses WHERE post_id=?').run(id);
+          db.prepare('DELETE FROM works WHERE post_id=?').run(id);
+          db.prepare("UPDATE posts SET work_summary='' WHERE id=?").run(id);
+        }
         const thumbnail = info.thumbnail
           ? (db
               .prepare("SELECT id FROM images WHERE thumb_url=?")
@@ -289,6 +299,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
           : undefined;
         referenceImages(db, "post", id, [
           ...rendered.imageIds,
+          ...(coverId ? [coverId] : []),
           ...(thumbnail ? [thumbnail.id] : []),
         ]);
         if (values.draftId) {
@@ -364,6 +375,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
         post={post}
         values={{
           ...blankPost(),
+          work: editWork(getWork(c.get("db"),post.id,user)),
           title: post.title,
           body: post.body,
           category: String(post.category_id),
@@ -477,6 +489,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
     try {
       validatePost(db, values, true);
       const rendered = renderMarkdown(db, values.body, c.get("config").siteUrl);
+      if (values.work.coverId && !db.prepare('SELECT 1 FROM images WHERE id=? AND owner_id=?').get(values.work.coverId,user.id)) throw new FormError('封面不存在或不属于你',{coverId:'请重新上传封面'});
       const id = db.transaction(() => {
         let id: number;
         if (values.draftId) {
@@ -505,7 +518,7 @@ export function posts(app: Hono<Env>, remote: SafeFetcher) {
               .lastInsertRowid,
           );
         }
-        referenceImages(db, "draft", id, rendered.imageIds);
+        referenceImages(db, "draft", id, [...rendered.imageIds,...(values.work.coverId ? [values.work.coverId] : [])]);
         return id;
       })();
       return c.redirect(`/drafts/${id}`, 303);

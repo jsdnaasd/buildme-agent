@@ -10,6 +10,7 @@ export interface FeedOptions {
   tag: string;
   range: string;
   cursor?: string;
+  harness?: string;
 }
 export interface FeedResult {
   posts: Post[];
@@ -140,6 +141,7 @@ export function feed(
         .prepare(
           `SELECT p.id FROM posts p JOIN users u ON u.id=p.author_id WHERE u.banned=0 AND (p.status='public' OR (p.status='pending' AND p.author_id=@viewer))
         AND (@category='' OR p.category_id=@category) AND (@tag='' OR EXISTS(SELECT 1 FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.post_id=p.id AND t.name=@tag))
+        AND (@harness='' OR EXISTS(SELECT 1 FROM work_harnesses wh WHERE wh.post_id=p.id AND wh.harness_id=@harness))
         AND p.created_at>=@since ${mode === "featured" && options.sort !== "votes" ? "AND p.featured=1" : ""}
         ORDER BY CASE WHEN p.pinned=1 AND (p.pin_category_id IS NULL OR p.pin_category_id=@category) THEN 1 ELSE 0 END DESC,${sort},p.id DESC`,
         )
@@ -147,6 +149,7 @@ export function feed(
           viewer: viewerId,
           category: options.category,
           tag: options.tag,
+          harness: options.harness ?? "",
           since:
             mode === "hot" ? now - 14 * 86400000 : since(options.range, now),
         }) as { id: number }[];
@@ -188,6 +191,7 @@ export function feed(
     tag: options.tag,
     range: options.range,
     cursor: `${snapshotId}.${offset}`,
+    harness: options.harness ?? "",
   });
   return {
     posts: visible,
@@ -301,7 +305,7 @@ export function search(
     fts = replies ? "replies_fts" : "posts_fts";
   const matches = terms.map((term, i) => {
     params[`t${i}`] = term.toLowerCase();
-    return `instr(lower(${replies ? "r.body" : "p.title||' '||p.body||' '||p.tags_text"}),@t${i})>0`;
+    return `instr(lower(${replies ? "r.body" : "p.title||' '||p.body||' '||p.tags_text||' '||p.work_summary"}),@t${i})>0`;
   });
   const long = terms.filter((t) => [...t].length >= 3);
   if (long.length) {
@@ -332,7 +336,7 @@ export function search(
       : "0.0";
   const rows = db
     .prepare(
-      `SELECT ${alias}.id,p.id post_id,p.title,${alias}.body,u.username,${alias}.created_at,${replies ? "r.floor" : "0"} floor FROM ${from} WHERE ${where} ORDER BY ${options.sort === "latest" ? `${alias}.created_at DESC` : `(${score}) DESC,${alias}.created_at DESC`},${alias}.id DESC LIMIT @limit OFFSET @offset`,
+      `SELECT ${alias}.id,p.id post_id,p.title,${replies?'r.body':"p.body||' '||p.work_summary"} body,u.username,${alias}.created_at,${replies ? "r.floor" : "0"} floor FROM ${from} WHERE ${where} ORDER BY ${options.sort === "latest" ? `${alias}.created_at DESC` : `(${score}) DESC,${alias}.created_at DESC`},${alias}.id DESC LIMIT @limit OFFSET @offset`,
     )
     .all(params) as {
     id: number;

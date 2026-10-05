@@ -165,6 +165,7 @@ function Admin({
       <div class="page-heading">
         <h1>社区管理</h1>
         <a href="/admin/review">待审核帖子</a>
+        <a href="/admin/works">作品精选</a>
       </div>
       <Errors error={error} />
       <div class="layout">

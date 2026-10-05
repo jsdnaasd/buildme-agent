@@ -14,6 +14,7 @@ import { GithubClient } from "./lib/github.js";
 import { SafeFetcher } from "./lib/remote.js";
 import { accounts } from "./routes/accounts.js";
 import { posts } from "./routes/posts.js";
+import { workRoutes } from "./routes/works.js";
 import { browsing } from "./routes/browse.js";
 import { interactions } from "./routes/interactions.js";
 export interface Dependencies {
@@ -97,6 +98,7 @@ export function createApp(config: Config, db: Db, deps: Dependencies = {}) {
   app.use("*", sessions);
   accounts(app, deps.github ?? new GithubClient(config), remote);
   browsing(app);
+  workRoutes(app);
   posts(app, remote);
   interactions(app);
   app.get("/about", (c) =>

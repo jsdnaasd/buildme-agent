@@ -14,7 +14,7 @@ const config = readConfig({
   PORT: "3198",
 });
 const db = openDb(join(config.dataDir, "community.sqlite"));
-for (const name of ["浏览器管理员", "草稿同学", "图片同学", "快速同学"])
+for (const name of ["浏览器管理员", "草稿同学", "图片同学", "快速同学", "作品同学"])
   db.prepare(
     "INSERT INTO users(username,username_key,password_hash,role,created_at,first_post_approved) VALUES (?,?,?,'admin',?,1)",
   ).run(

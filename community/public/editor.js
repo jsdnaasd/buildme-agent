@@ -69,7 +69,8 @@ if (editorForm) {
         (field) =>
           field.name &&
           !["csrf", "image"].includes(field.name) &&
-          !["file", "submit", "button", "hidden"].includes(field.type),
+          !["file", "submit", "button"].includes(field.type) &&
+          (field.type !== "hidden" || field.name === "coverId"),
       )
       .map((field) => ({
         name: field.name,
@@ -847,6 +848,7 @@ if (editorForm) {
       }
       awaitingRestore = false;
       restoreBar.remove();
+      document.dispatchEvent(new Event("community:work-restored"));
       body.dispatchEvent(new Event("input", { bubbles: true }));
       setStatus("已恢复本地草稿");
       body.focus();

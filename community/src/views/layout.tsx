@@ -54,6 +54,7 @@ export function Layout(p: PageProps) {
           <script src={asset("browse.js")} defer />
           <script src={asset("interactions.js")} defer />
           {p.editor && <script src={asset("editor.js")} defer />}
+          {p.editor && <script src={asset("works.js")} defer />}
         </head>
         <body class={p.embed ? "is-embed" : ""}>
           <div class="shell">
@@ -74,9 +75,7 @@ export function Layout(p: PageProps) {
                     最新
                   </a>
                   <a href="/featured" aria-current={p.path === "/featured" ? "page" : undefined}>精华</a>
-                  <span aria-disabled="true" title="C5 开放">
-                    作品墙
-                  </span>
+                  <a href="/works" aria-current={p.path === "/works" ? "page" : undefined}>作品墙</a>
                 </nav>
                 <form class="header-search" action="/search" role="search"><label class="sr-only" for="site-search">搜索社区</label><input id="site-search" data-search-input name="q" type="search" placeholder="搜索社区 /" autocomplete="off" aria-controls="search-suggestions"/><div id="search-suggestions" role="listbox" hidden/></form>
                 <button class="button mobile-menu-toggle" type="button" data-mobile-menu aria-controls="mobile-navigation" aria-expanded="false">菜单</button>

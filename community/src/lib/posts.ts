@@ -1,6 +1,7 @@
 import type { Db } from "../db/index.js";
 import type { User, Category, Tag } from "../types.js";
 import { FormError, length, httpUrl, textField } from "./validation.js";
+import { blankWork, workInput, validateWork, type WorkInput } from "./works.js";
 import { limit } from "./auth.js";
 export interface Post {
   id: number;
@@ -36,6 +37,7 @@ export interface Post {
   first_image?: string;
 }
 export interface PostInput {
+  work: WorkInput;
   title: string;
   body: string;
   category: string;
@@ -47,6 +49,7 @@ export interface PostInput {
 }
 export function postInput(form: FormData): PostInput {
   return {
+    work: workInput(form),
     title: textField(form, "title").trim(),
     body: textField(form, "body").replace(/\r\n?/g, "\n"),
     category: textField(form, "category"),
@@ -58,6 +61,7 @@ export function postInput(form: FormData): PostInput {
   };
 }
 export const blankPost = (): PostInput => ({
+  work: blankWork(),
   title: "",
   body: "",
   category: "1",
@@ -79,6 +83,7 @@ export function tags(db: Db) {
 }
 export function validatePost(db: Db, input: PostInput, draft = false) {
   const fields: Record<string, string> = {};
+  if (input.category === "4") validateWork(db, input.title, input.work, draft);
   if ((!draft && length(input.title) < 4) || length(input.title) > 80)
     fields.title = "标题需为 4–80 字";
   if (
