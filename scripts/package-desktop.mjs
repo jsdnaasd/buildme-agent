@@ -40,6 +40,7 @@ async function createProductionStage() {
     cp(join(root, "desktop"), join(stage, "desktop"), { recursive: true }),
     cp(join(root, "bundles"), join(stage, "bundles"), { recursive: true }),
     cp(join(root, "legal"), join(stage, "legal"), { recursive: true }),
+    cp(join(root, "LICENSE"), join(stage, "LICENSE")),
     cp(join(root, "THIRD_PARTY_NOTICES.md"), join(stage, "THIRD_PARTY_NOTICES.md")),
     cp(join(root, "pnpm-lock.yaml"), join(stage, "pnpm-lock.yaml")),
     cp(join(root, "pnpm-workspace.yaml"), join(stage, "pnpm-workspace.yaml")),

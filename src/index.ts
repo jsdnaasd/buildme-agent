@@ -1,4 +1,5 @@
 export * from "./contracts.js";
+export * from "./core/capabilities.js";
 export * from "./services.js";
 export { createApp, type PiharnessApp } from "./bootstrap.js";
 export { applyProxyFromEnv, hasProxyEnv, proxyUrlFromPac } from "./core/network-proxy.js";
@@ -13,3 +14,6 @@ export {
 	type LoadProfileOptions,
 	type ProfileLayer,
 } from "./profile.js";
+
+export * from "./core/capability-usage.js";
+export * from "./core/achievements.js";

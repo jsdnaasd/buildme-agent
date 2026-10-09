@@ -2,6 +2,8 @@ import console from "node:console";
 import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
 import vm from "node:vm";
+import MarkdownIt from "markdown-it";
+import { parseHTML } from "linkedom";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -40,9 +42,13 @@ class FakeElement {
     this.classList.values = new Set(String(value).split(/\s+/).filter(Boolean));
   }
   get className() { return this.#className; }
+  set innerHTML(value) { this.fragment = parseHTML(`<div>${value}</div>`).document.firstChild; this.textContent = this.fragment.textContent; }
+  get innerHTML() { return this.fragment.innerHTML; }
+  querySelector(selector) { return this.fragment.querySelector(selector); }
 
   addEventListener(name, listener) { this.listeners.set(name, listener); }
-  append(...children) { this.children.push(...children); this.scrollHeight = Math.max(28, this.children.length * 20); }
+  append(...children) { for (const child of children) child.parentNode = this; this.children.push(...children); this.scrollHeight = Math.max(28, this.children.length * 20); }
+  before(child) { child.parentNode = this.parentNode; this.parentNode.children.splice(this.parentNode.children.indexOf(this), 0, child); }
   close() { this.open = false; }
   contains(target) { return target === this || this.children.some((child) => child.contains?.(target)); }
   focus() { this.focused = true; }
@@ -53,6 +59,7 @@ class FakeElement {
 }
 
 const selectors = [
+  "#community-entry",
   "#agent-name", "#allow-approval", "#api-key", "#api-key-label", "#paste-api-key", "#approval-arguments", "#approval-dialog", "#approval-tool",
   "#base-url", "#cancel-settings", "#chat-title", "#close-settings", "#close-sidebar", "#composer",
   "#connection-auth-copy", "#connection-auth-hint", "#connection-name", "#connection-profile", "#connection-state", "#delete-connection", "#deny-approval",
@@ -60,7 +67,7 @@ const selectors = [
   "#new-chat", "#new-connection", "#open-sidebar", "#permission-chip", "#permission-label", "#permission-menu", "#plugin-market", "#plugin-market-dialog", "#close-plugin-market",
   "#open-pi-community-popular", "#open-pi-community-github", "#open-pi-community-reddit",
   "#prompt", "#provider", "#refresh-sessions", "#send", "#session-list", "#settings", "#settings-dialog",
-  "#settings-form", "#sidebar-backdrop", "#status", "#workspace-chip",
+  "#record-raw-requests", "#settings-form", "#sidebar-backdrop", "#status", "#workspace-chip",
   "#workspace-label", ".connection-dot",
 ];
 
@@ -83,6 +90,7 @@ async function rendererFixture(overrides = {}) {
   let streamListener;
   let approvalListener;
   let completeSend;
+  let failSend;
   const initialState = {
     activeConnectionId: "primary",
     catalog: [
@@ -114,7 +122,7 @@ async function rendererFixture(overrides = {}) {
       connections: [{ ...connection, apiKey: undefined, id: "saved" }],
     })),
     selectConnection: vi.fn(async (id) => ({ activeConnectionId: id })),
-    send: vi.fn(() => new Promise((resolve) => { completeSend = resolve; })),
+    send: vi.fn(() => new Promise((resolve, reject) => { completeSend = resolve; failSend = reject; })),
     sessions: vi.fn(async () => []),
     setPermissionMode: vi.fn(async (permissionMode) => permissionMode),
     setTheme: vi.fn(async (theme) => theme),
@@ -134,22 +142,27 @@ async function rendererFixture(overrides = {}) {
     querySelectorAll: (selector) => selector === "[data-permission]" ? permissionButtons : selector === "[data-theme-option]" ? themeButtons : [],
   };
   const media = { matches: true, addEventListener: vi.fn() };
+  const xray = { setSession: vi.fn(), bindHistory: vi.fn(), beginRun: vi.fn(), endRun: vi.fn() };
   const context = vm.createContext({
     console,
     document,
     Error,
     String,
-    window: { matchMedia: vi.fn(() => media), personalAgent: api },
+    window: { matchMedia: vi.fn(() => media), personalAgent: api, createCommunityPanel: () => ({ sync() {}, hide() {} }), createExplanations: () => ({ sync() {} }), createAchievements: () => ({}), createComparisons: () => ({ open() {}, close() {}, isOpen: () => false }), createCapabilities: () => ({ sync() {}, guide() {} }), createXray: () => xray },
   });
   const source = await readFile(new URL("../desktop/renderer/renderer.js", import.meta.url), "utf8");
+  context.window.markdownit = MarkdownIt;
+  vm.runInContext(await readFile(new URL("../desktop/renderer/markdown.js", import.meta.url), "utf8"), context);
   vm.runInContext(source, context, { filename: "desktop/renderer/renderer.js" });
   await vi.waitFor(() => expect(api.state).toHaveBeenCalledOnce());
   await vi.waitFor(() => expect(api.sessions).toHaveBeenCalledOnce());
 
   return {
     api,
+    xray,
     approvalButtons: { allow: elements.get("#allow-approval"), deny: elements.get("#deny-approval") },
     completeSend: (result) => completeSend(result),
+    failSend: (error) => failSend(error),
     document,
     element: (selector) => elements.get(selector),
     emitApproval: (request) => approvalListener(request),
@@ -164,6 +177,35 @@ function fire(element, type, event = {}) {
 }
 
 describe("Desktop renderer", () => {
+  it("renders history and split streamed Markdown, retaining formatting after cancellation", async () => {
+    const fixture = await rendererFixture({
+      sessions: vi.fn(async () => [{ id: "history", updatedAt: "2026-10-10T00:00:00.000Z", turnCount: 1 }]),
+      messages: vi.fn(async () => [{ role: "assistant", text: "## 历史回答\n\n**已完成**" }]),
+    });
+    await fire(fixture.element("#session-list").children[0], "click");
+    expect(fixture.element("#messages").children[0].querySelector("h2").textContent).toBe("历史回答");
+    fixture.element("#prompt").value = "继续";
+    const submission = fire(fixture.element("#composer"), "submit");
+    await vi.waitFor(() => expect(fixture.api.send).toHaveBeenCalled());
+    fixture.emitStream({ type: "text", sessionId: "history", delta: "## 新回答\n\n**加" });
+    fixture.emitStream({ type: "text", sessionId: "history", delta: "粗**\n\n| 项 | 值 |\n|---|---|\n| 状态 | 好 |" });
+    const answer = fixture.element("#messages").children.at(-1);
+    expect(answer.querySelector("h2").textContent).toBe("新回答");
+    expect(answer.querySelector("strong").textContent).toBe("加粗");
+    expect(answer.querySelector("td").textContent).toBe("状态");
+    await fire(fixture.element("#send"), "click");
+    fixture.failSend(new Error("cancelled")); await submission;
+    expect(answer.querySelector("strong").textContent).toBe("加粗");
+    expect(answer.textContent).toContain("已取消。");
+  });
+
+  it("renders the completed result when no text deltas arrived", async () => {
+    const fixture = await rendererFixture(); fixture.element("#prompt").value = "问题";
+    const submission = fire(fixture.element("#composer"), "submit");
+    fixture.completeSend({ sessionId: "final-only", text: "## 完整结果\n\n**完成**" }); await submission;
+    expect(fixture.element("#messages").children.at(-1).querySelector("h2").textContent).toBe("完整结果");
+  });
+
   it("keeps personal branding and exposes the workspace, permission, model, and theme controls", async () => {
     const html = await readFile(new URL("../desktop/renderer/index.html", import.meta.url), "utf8");
     expect(html).toContain("BuildMe");
@@ -332,15 +374,23 @@ describe("Desktop renderer", () => {
     await vi.waitFor(() => expect(fixture.api.send).toHaveBeenCalledWith({ sessionId: undefined, prompt: "new question" }));
     expect(send.type).toBe("button");
     expect(send.textContent).toBe("■");
+    expect(fixture.xray.beginRun).toHaveBeenCalledWith(fixture.element("#messages").children.at(-1));
 
+    fixture.emitStream({ type: "response-start", sessionId: "new-session" });
+    fixture.emitStream({ type: "reasoning", sessionId: "new-session", delta: "先核对真实资料" });
+    const thought = fixture.element("#messages").children.find(node => node.className === "message-reasoning");
+    expect(thought.open).toBe(true); expect(thought.children[1].textContent).toBe("先核对真实资料");
     fixture.emitStream({ type: "text", sessionId: "new-session", delta: "streamed answer" });
-    expect(fixture.element("#messages").children.at(-1).textContent).toBe("streamed answer");
+    expect(fixture.element("#messages").children.at(-1).textContent.trimEnd()).toBe("streamed answer");
     await fire(send, "click");
     await vi.waitFor(() => expect(fixture.api.abort).toHaveBeenCalledWith("new-session"));
     fixture.completeSend({ sessionId: "new-session", text: "streamed answer", messageCount: 2 });
     await submission;
     expect(send.type).toBe("submit");
     expect(send.textContent).toBe("↑");
+    expect(fixture.xray.endRun).toHaveBeenCalledOnce();
+    expect(thought.children[0].textContent).toContain("已取消");
+    expect(thought.children[1].textContent).toBe("先核对真实资料");
   });
 
   it("shows ask-mode tool approvals and returns the explicit decision", async () => {

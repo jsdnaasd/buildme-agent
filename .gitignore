@@ -2,6 +2,13 @@ node_modules/
 dist/
 .piharness/
 .env
+.env.*
+!.env.example
 coverage/
 release/
+artifacts/buildme-learning/
 .DS_Store
+
+/community/
+/docs/community-*.md
+/docs/prd-community.md

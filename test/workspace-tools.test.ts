@@ -27,6 +27,15 @@ function namedTool(ctx: Context, name: string, scope: ToolExecutionScope): Agent
 }
 
 describe("Pi workspace tools and permission plugin", () => {
+	it.each(["cancelled", "timeout"] as const)("preserves the %s approval outcome without granting access", async (decision) => {
+		const fixture = await tempWorkspace(); const ctx = await setup();
+		const off = ctx.on("piharness/tool-approval-request", () => ({ decision }));
+		try {
+			const result = await ctx.tools.authorize({ sessionId: "s", toolCallId: "t", toolName: "bash", args: { command: "true" }, workspacePath: fixture.dir, permissionMode: "ask" });
+			expect(result).toMatchObject({ allow: false, source: decision });
+		} finally { off(); await ctx.fiber.dispose(); await fixture.cleanup(); }
+	});
+
 	it("executes a Pi-native write through the complete DSH AgentFactory and approval path", async () => {
 		const fixture = await tempWorkspace();
 		try {
@@ -152,7 +161,7 @@ export default plugin;
 		const requests: string[] = [];
 		const off = ctx.on("piharness/tool-approval-request", async (request) => {
 			requests.push(request.toolName);
-			return request.toolName === "write";
+			return request.toolName === "write" ? true : { decision: "deny" };
 		});
 		try {
 			const approved = await ctx.tools.authorize({
@@ -179,8 +188,8 @@ export default plugin;
 				workspacePath: fixture.dir,
 				permissionMode: "bypass",
 			});
-			expect(approved).toEqual({ allow: true });
-			expect(denied).toMatchObject({ allow: false });
+			expect(approved).toEqual({ allow: true, source: "user" });
+			expect(denied).toMatchObject({ allow: false, source: "user" });
 			expect(bypassed).toEqual({ allow: true });
 			expect(requests).toEqual(["write", "bash"]);
 		} finally {

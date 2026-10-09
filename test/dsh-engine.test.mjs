@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { URL } from "node:url";
 
 import * as yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
@@ -61,6 +62,12 @@ describe("BuildMe full edition engine helpers", () => {
       expect(overlay[2].insert[3].name).toBe("file:///app/dist/full/dsh-bridge.js");
       // The user's own patch layer is created once and never overwritten.
       expect(await readFile(join(profileDir, "cordis.patch.yml"), "utf8")).toContain("[]");
+      await prepareDshHome({ dshHome: home, bridgePath: "/app/dist/full/dsh-bridge.js", systemPrompt: "persona", processIsolated: true });
+      const isolated = yaml.load(await readFile(overlayPath, "utf8"));
+      expect(isolated.slice(-2)).toEqual([
+        { id: "bash-sandbox", disabled: true },
+        { insert: [{ id: "buildme-confined-bash", name: new URL("../desktop/dsh-confined-shell.mjs", import.meta.url).href, config: { timeoutMs: 60000 } }] },
+      ]);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

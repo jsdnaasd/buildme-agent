@@ -24,24 +24,25 @@ export const PERSONAL_BASE_BUNDLE = "@my-agent/base";
 const internalBaseDir = fileURLToPath(new URL("../bundles/base/", import.meta.url));
 
 /**
- * BuildMe's academic-assistant prompt is vendored with the base bundle so the
+ * BuildMe's default agent prompt is vendored with the base bundle so the
  * default agent works offline and has a versioned, reviewable source.
  */
-const ACADEMIC_PROMPT_PRESET = "@buildme/academic";
+const AGENT_PROMPT_PRESET = "@buildme/agent";
 
 /**
- * Profiles created before 0.5 either reference the removed Claude Code preset
- * or contain its full text (older `init` wrote the text itself). Both resolve
- * to the academic prompt so existing profiles keep working.
+ * Older profiles may reference a removed preset (`@buildme/academic`, or the
+ * pre-0.5 Claude Code preset) or contain the Claude Code preset's full text
+ * (older `init` wrote the text itself). All resolve to the default agent
+ * prompt so existing profiles keep working.
  */
-const LEGACY_PROMPT_PRESET = "@buildme/claude-code-opus-5";
+const LEGACY_PROMPT_PRESETS = new Set(["@buildme/academic", "@buildme/claude-code-opus-5"]);
 const LEGACY_PROMPT_SHA256 = "0a92514c8382284653acda857bb3a7299f538a8b43ac40fd30505f04ce1a2b0a";
 
-const ACADEMIC_PROMPT = readFileSync(join(internalBaseDir, "prompts", "buildme-academic.md"), "utf8");
+const AGENT_PROMPT = readFileSync(join(internalBaseDir, "prompts", "buildme-agent.md"), "utf8");
 
 function resolveSystemPrompt(value: string): string {
-	if (value === ACADEMIC_PROMPT_PRESET || value === LEGACY_PROMPT_PRESET) return ACADEMIC_PROMPT;
-	if (createHash("sha256").update(value).digest("hex") === LEGACY_PROMPT_SHA256) return ACADEMIC_PROMPT;
+	if (value === AGENT_PROMPT_PRESET || LEGACY_PROMPT_PRESETS.has(value)) return AGENT_PROMPT;
+	if (createHash("sha256").update(value).digest("hex") === LEGACY_PROMPT_SHA256) return AGENT_PROMPT;
 	return value;
 }
 
@@ -404,7 +405,7 @@ export async function loadProfile(inputPath: string, options: LoadProfileOptions
 	return finalize(manifestPath, absolute, result.data.name ?? "BuildMe", manifest, layers, false, options);
 }
 
-const DEFAULT_PROMPT = ACADEMIC_PROMPT_PRESET;
+const DEFAULT_PROMPT = AGENT_PROMPT_PRESET;
 
 /** Initialize the same package.json + cordis.patch.yml profile shape used by DSH. */
 export async function initProfile(dir: string, name = "BuildMe"): Promise<string> {

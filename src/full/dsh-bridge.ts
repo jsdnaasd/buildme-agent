@@ -1,3 +1,6 @@
+import { compareDenial, type ComparePolicy } from "../core/compare-policy.js";
+import { DshTraceRecorder } from "./dsh-trace.js";
+import { traceAttempt } from "../core/trace-redact.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
@@ -34,7 +37,7 @@ import { JsonRpcLineTransport } from "@deepseek-ai/dsh-sdk-protocol";
  */
 
 export const name = "buildme-dsh-bridge";
-export const inject = ["agents", "sessions", "sessionPersistence"];
+export const inject = ["agents", "sessions", "sessionPersistence", "tools"];
 
 type PermissionMode = "ask" | "workspace-write" | "bypass";
 
@@ -47,6 +50,7 @@ const PERMISSION_PRESETS: Readonly<Record<PermissionMode, string>> = {
 
 interface RunParams {
 	readonly sessionId?: string;
+	readonly createSession?: boolean;
 	readonly cwd?: string;
 	readonly provider: string;
 	readonly model: string;
@@ -58,6 +62,7 @@ interface BridgeMessage {
 	readonly id: string;
 	readonly role: "user" | "assistant" | "tool";
 	readonly text: string;
+	readonly reasoning?: string;
 	readonly at: string;
 }
 
@@ -95,6 +100,7 @@ function blocksText(content: unknown, includeToolCalls: boolean): string {
 function eventMessage(sessionId: string, event: any): BridgeMessage | undefined {
 	let role: BridgeMessage["role"];
 	let text: string;
+	let reasoning = "";
 	switch (event?.type) {
 		case "user/message": {
 			const message = event.data?.message ?? event.data;
@@ -108,6 +114,7 @@ function eventMessage(sessionId: string, event: any): BridgeMessage | undefined 
 		case "assistant/message":
 			role = "assistant";
 			text = blocksText(event.data?.message?.content, true);
+			reasoning = event.data.message.content.filter((block: any) => block.type === "reasoning").map((block: any) => block.text).join("\n");
 			break;
 		case "tool/result":
 			role = "tool";
@@ -116,9 +123,9 @@ function eventMessage(sessionId: string, event: any): BridgeMessage | undefined 
 		default:
 			return undefined;
 	}
-	if (!text) return undefined;
+	if (!text && !reasoning) return undefined;
 	const time = typeof event.time === "number" ? event.time : Date.now();
-	return { id: `${sessionId}:${String(event.seq)}`, role, text, at: new Date(time).toISOString() };
+	return { id: `${sessionId}:${String(event.seq)}`, role, text, ...(reasoning ? { reasoning } : {}), at: new Date(time).toISOString() };
 }
 
 /** Last assistant text and turn outcome after `firstSeq` (same rule as dsh-headless). */
@@ -184,17 +191,46 @@ function toolCallArguments(session: any, callId: string | undefined): unknown {
 }
 
 class DshBridge {
+	private readonly trace: DshTraceRecorder;
+	private readonly runningRequests = new Map<string, { cancelled: boolean }>();
+	private readonly policies = new Map<string, ComparePolicy>();
 	private readonly creations = new Map<string, Promise<any>>();
 	private readonly disposers: (() => void)[] = [];
 
 	constructor(private readonly ctx: Context, private readonly transport: JsonRpcLineTransport) {
 		const c = ctx as any;
+		this.disposers.push(c.tools.guard((exec: any) => {
+			const policy = this.comparePolicy(exec.agent?.session);
+			if (policy) {
+				if (resolve(exec.agent.session.header.cwd) !== resolve(policy.workspaceRoot)) return "子任务的目录必须位于同一对比副本。";
+				return compareDenial(policy, exec.name, exec.arguments);
+			}
+		}));
+		this.trace = new DshTraceRecorder((notification) => transport.notify("trace", notification), [process.env.BUILDME_ACTIVE_API_KEY, process.env.DEEPSEEK_API_KEY]);
+		this.disposers.push(c.on("session/created", (session: any) => { const inherited = this.comparePolicy(session); if (inherited) this.policies.set(String(session.id), inherited); }));
+		this.disposers.push(c.on("session/event", (session: any, event: any) => traceAttempt(() => this.trace.sessionEvent(session, event))));
+		this.disposers.push(c.on("llm/stream", (options: any, next: any) => this.trace.stream(options, next)));
+		this.disposers.push(c.on("tools/pre-execute", (exec: any, next: any) => {
+			traceAttempt(() => { if (exec.agent) this.trace.toolStart(String(exec.agent.session.id), String(exec.callId), exec.name, exec.arguments); });
+			return next();
+		}));
+		this.disposers.push(c.on("tools/execute", (exec: any, next: any) => {
+			traceAttempt(() => { if (exec.agent) this.trace.approval(String(exec.agent.session.id), String(exec.callId), "auto-allow"); });
+			return next();
+		}));
+		this.disposers.push(c.on("tools/result", (exec: any, result: any) => traceAttempt(() => {
+			if (exec.agent) this.trace.toolResult(String(exec.agent.session.id), String(exec.callId), exec.name, exec.arguments, result);
+		})));
 		this.disposers.push(c.on("agent/assistant-stream", ({ agent, frame }: any) => {
-			if (frame?.type !== "chunk" || agent?.session?.header?.parentSession !== undefined) return;
+			if (agent?.session?.header?.parentSession !== undefined) return;
 			const sessionId = String(agent.session.id);
+			if (frame.type === "start") { this.transport.notify("stream", { sessionId, type: "response-start" }); return; }
+			if (frame.type !== "chunk") return;
 			const chunk = frame.chunk;
 			if (chunk?.type === "text-delta" && chunk.text) {
 				this.transport.notify("stream", { sessionId, type: "text", delta: chunk.text });
+			} else if (chunk?.type === "reasoning-delta" && chunk.text) {
+				this.transport.notify("stream", { sessionId, type: "reasoning", delta: chunk.text });
 			} else if (chunk?.type === "block-end" && chunk.block?.type === "tool-call") {
 				this.transport.notify("stream", { sessionId, type: "tool", name: chunk.block.name });
 			}
@@ -212,13 +248,16 @@ class DshBridge {
 				const answer = asRecord(await this.transport.request("approval/request", {
 					requestId: randomUUID(),
 					sessionId: rootSessionId,
+					turnId: this.trace.turnId(String(session?.id)),
 					toolName: String(req.toolName ?? "工具"),
 					...(req.callId === undefined ? {} : { toolCallId: String(req.callId) }),
 					...(req.reason === undefined ? {} : { reason: String(req.reason) }),
 					...(args === undefined ? {} : { args }),
 				}, req.signal));
-				return answer.allow === true ? "allowed-once" : "rejected";
+				traceAttempt(() => this.trace.approval(String(session?.id), String(req.callId), answer.allow === true ? "user-allow" : answer.decision === "cancelled" ? "cancelled" : answer.decision === "timeout" ? "timeout" : "user-deny"));
+				return answer.allow === true ? "allowed-once" : answer.decision === "cancelled" ? "cancelled" : answer.decision === "timeout" ? "unavailable" : "rejected";
 			} catch {
+				traceAttempt(() => this.trace.approval(String(session?.id), String(req.callId), req.signal?.aborted ? "cancelled" : "policy-deny"));
 				return req.signal?.aborted ? "cancelled" : "unavailable";
 			}
 		}));
@@ -261,7 +300,7 @@ class DshBridge {
 		const setup = (agentCtx: Context) => {
 			installModelSelection(agentCtx, { current: selection, assembled: undefined } as never);
 		};
-		if (params.sessionId) {
+		if (params.sessionId && !params.createSession) {
 			const live = agents.get(params.sessionId);
 			if (live) return live;
 			const pending = this.creations.get(params.sessionId);
@@ -279,7 +318,7 @@ class DshBridge {
 			}
 		}
 		const handle = await agents.create({
-			sessionId: brandString(`session-${randomUUID()}`),
+			sessionId: brandString(params.sessionId ?? `session-${randomUUID()}`),
 			meta: { cwd: resolve(params.cwd ?? process.cwd()) },
 			agentOptions: selection,
 			setup,
@@ -287,9 +326,19 @@ class DshBridge {
 		return handle.agent;
 	}
 
+	private comparePolicy(session: any): ComparePolicy | undefined {
+		if (!session) return undefined;
+		const own = this.policies.get(String(session.id));
+		if (own) return own;
+		const parent = session.header.parentSession;
+		if (!parent) return undefined;
+		return this.policies.get(String(parent)) ?? this.comparePolicy((this.ctx as any).agents.get(String(parent))?.session);
+	}
+
 	private async run(raw: Record<string, unknown>) {
 		const permissionMode = optionalString(raw, "permissionMode") as PermissionMode | undefined;
 		const params: RunParams = {
+			createSession: raw.createSession === true,
 			provider: requiredString(raw, "provider"),
 			model: requiredString(raw, "model"),
 			text: requiredString(raw, "text"),
@@ -297,16 +346,24 @@ class DshBridge {
 			...(optionalString(raw, "cwd") ? { cwd: optionalString(raw, "cwd")! } : {}),
 			...(permissionMode && permissionMode in PERMISSION_PRESETS ? { permissionMode } : {}),
 		};
+		const pending = { cancelled: false };
+		if (params.sessionId) this.runningRequests.set(params.sessionId, pending);
 		const agent = await this.agentFor(params);
 		const sessionId = String(agent.session.id);
+		if (raw.comparePolicy) {
+			const policy = asRecord(raw.comparePolicy);
+			this.policies.set(sessionId, Object.freeze({ workspaceRoot: requiredString(policy, "workspaceRoot"), readOnly: policy.readOnly === true }));
+		}
 		await agent.whenIdle();
+		if (pending.cancelled) { this.runningRequests.delete(sessionId); return { sessionId, text: "", reason: "aborted" }; }
 		const presets = (this.ctx as any).get("permissionPresets");
 		const preset = PERMISSION_PRESETS[params.permissionMode ?? "ask"];
 		if (presets && presets.current(agent.session) !== preset) presets.set(agent.session, preset);
 
 		const firstSeq = agent.session.seq;
+		this.trace.configure(sessionId, { ...params, recordRawRequests: raw.recordRawRequests !== false, ...(optionalString(raw, "compareGroupId") ? { compareGroupId: optionalString(raw, "compareGroupId")! } : {}) });
 		agent.followup(createUserMessage({ content: [{ type: "text", text: params.text }], source: { kind: "user" } } as never));
-		await agent.whenIdle();
+		try { await agent.whenIdle(); } finally { this.runningRequests.delete(sessionId); traceAttempt(() => this.trace.backfill(agent.session, firstSeq)); }
 		await (this.ctx as any).sessions.flush(agent.session);
 		const outcome = summarize(agent.session, firstSeq);
 		const reason = outcome.reason?.kind ?? "unknown";
@@ -318,11 +375,15 @@ class DshBridge {
 		};
 	}
 
-	private cancel(sessionId: string) {
-		const agent = (this.ctx as any).agents.get(sessionId);
-		if (!agent) return { cancelled: false };
-		agent.cancel({ kind: "user" });
-		return { cancelled: true };
+	private async cancel(sessionId: string) {
+		const pending = this.runningRequests.get(sessionId); if (pending) pending.cancelled = true;
+		const agents = (this.ctx as any).agents.list() as any[];
+		const owned = new Set([sessionId]);
+		for (let count = 0; count < agents.length; count++) for (const agent of agents) if (owned.has(String(agent.session.header.parentSession))) owned.add(String(agent.session.id));
+		const active = agents.filter((agent) => owned.has(String(agent.session.id)));
+		for (const agent of active) agent.cancel({ kind: "user" });
+		await Promise.all(active.map((agent) => agent.whenIdle()));
+		return { cancelled: active.length > 0 || Boolean(pending) };
 	}
 
 	private async list() {

@@ -2,11 +2,15 @@
 
 个人 Agent 桌面与 CLI：**Pi Agent Core 是唯一 Agent driver，DeepSeek Harness（DSH）的 Cordis/Loader/Include/Profile/Bundle 架构负责组合。**
 
+源码仓库：[jsdnaasd/buildme-agent](https://github.com/jsdnaasd/buildme-agent)。BuildMe 采用 [MIT 许可证](./LICENSE) 开源，包括桌面端、CLI、Agent 运行时、插件、提示词、测试和相关文档。
+
+社区服务端源码及专门的社区设计、部署文档不属于本次开源范围；桌面端连接社区的客户端代码随 BuildMe 一起开源。
+
 当前版本已经从早期的“DSH-inspired 自制宿主”迁移为一套可运行的 **DSH 架构精简移植**：使用 DSH 官方发布的 scoped Cordis 包、真实 Loader Entry ABI、Include 导出的 patch 算法、bundle/profile/overlay 分层，以及 `ctx.agents.setFactory()` 形式的可替换 AgentFactory。上游架构与启动语义的核对基线固定为 `deepseek-ai/deepseek-harness@0d1f50007f9bca3f52b06e1c3074fa14d5fb0720`。
 
 ## 两个版本
 
-BuildMe 是面向学生论文写作的学术助手，桌面端有两种模式，界面相同，顶部按钮切换：
+BuildMe 是一个帮助同学们学习 Agent 的通用 Agent，桌面端有两种模式，界面相同，顶部按钮切换：
 
 | | **Build 模式（轻量）** | **全量版（DSH 引擎）** |
 |---|---|---|
@@ -19,7 +23,7 @@ BuildMe 是面向学生论文写作的学术助手，桌面端有两种模式，
 | 其他 | 技能、计划、待办、上下文压缩 | 技能、待办、长期目标、后台任务、上下文压缩 |
 | 模型 | Pi 目录全部 provider 与中转站 | DeepSeek 原生适配器；其他 provider 与中转站走 `dsh-llm-pi-ai` |
 
-两种模式共用同一份学术提示词（`bundles/base/prompts/buildme-academic.md`），全量版把其中的工具说明替换为 `buildme-tools-dsh.md`。
+两种模式共用同一份提示词（`bundles/base/prompts/buildme-agent.md`），全量版把其中的工具说明替换为 `buildme-tools-dsh.md`。
 
 ### 全量版如何工作
 
@@ -104,6 +108,8 @@ DSH/Cordis 层负责另一半：profile/bundle/patch 组合、插件生命周期
 要求：Node.js `>=22.19`、pnpm。
 
 ```bash
+git clone https://github.com/jsdnaasd/buildme-agent.git
+cd buildme-agent
 pnpm install
 pnpm build
 node dist/cli.js init
@@ -254,6 +260,8 @@ pnpm desktop:package
 ```
 
 ## 许可与品牌
+
+BuildMe 自有代码采用 [MIT 许可证](./LICENSE)，版权归 BuildMe 贡献者所有。第三方组件保留各自的版权与许可证，见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 DeepSeek Harness 主体采用 MIT。复制和改造的架构/启动语义保留 `Copyright (c) 2026 DeepSeek` 与完整许可文本：
 

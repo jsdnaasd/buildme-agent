@@ -1,12 +1,19 @@
+import { createCompareService } from "./compare.mjs";
+import { createExplanationService } from "./explanations.mjs";
+import { tokenLedger } from "../dist/core/trace-ledger.js";
+import { traceMoment } from "../dist/core/trace.js";
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createCommunity } from "./community.mjs";
+import { communityOrigin, compareShare, achievementShare, shareUrl } from "./community-policy.mjs";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, safeStorage, session, shell } from "electron";
 
 import { applyProxyFromEnv, createApp, hasProxyEnv, initProfile, loadProfile, proxyUrlFromPac } from "../dist/index.js";
 import { ACTIVE_API_KEY_ENV, DshEngine, dshRoute, fullEditionPrompt } from "./dsh-engine.mjs";
+import { ACHIEVEMENTS, AchievementEngine, CAPABILITIES, ALL_CAPABILITIES, resolveCapabilities, toggleCapability, CapabilityUsageStore, TraceStore, redactTrace } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const APP_NAME = "BuildMe";
@@ -76,6 +83,11 @@ let harnessApp;
 let harnessPromise;
 let stopStream;
 let stopApprovals;
+let stopTrace;
+let traceStore;
+let capabilityUsage;
+let achievementEngine;
+let learningPending = Promise.resolve();
 let quitting = false;
 let profilePathPromise;
 const pendingApprovals = new Map();
@@ -90,6 +102,47 @@ const scheduleResumedEngines = new WeakSet();
 
 function appDataPath(name) {
   return join(app.getPath("userData"), name);
+}
+
+function getTraceStore() {
+  traceStore ??= new TraceStore(appDataPath("traces"));
+  return traceStore;
+}
+
+function getCapabilityUsage() {
+  capabilityUsage ??= new CapabilityUsageStore(appDataPath("capability-usage.json"));
+  return capabilityUsage;
+}
+
+function getAchievements() {
+  achievementEngine ??= new AchievementEngine(appDataPath("achievements.json"), getCapabilityUsage());
+  return achievementEngine;
+}
+
+function recordLearning(input) {
+  const operation = learningPending.then(async () => {
+    try {
+      const config = await getConfig();
+      const unlocks = await getAchievements().accept(input, config.capabilities ?? ["core"]);
+      if (unlocks.length) sendToWindow("desktop:achievements", unlocks);
+      if (input.type === "turn" && input.turn.engine === "pi") sendToWindow("desktop:capability-usage", await getCapabilityUsage().counts());
+      return { accepted: true };
+    } catch {
+      console.warn("[成就] 本次学习事件未能保存，正常对话不受影响。");
+      return { accepted: false };
+    }
+  });
+  learningPending = operation.then(() => undefined);
+  return operation;
+}
+
+async function capabilityState(config) {
+  return {
+    capabilities: config.capabilities ?? ["core"],
+    capabilityOnboarding: config.capabilities === undefined,
+    capabilityRegistry: CAPABILITIES,
+    capabilityUsage: await getCapabilityUsage().counts(),
+  };
 }
 
 async function migrateLegacyUserData() {
@@ -196,12 +249,15 @@ function normalizeConfig(value) {
     : connections[0]?.id;
   return {
     schemaVersion: 2,
+    communityUrl: typeof source.communityUrl === "string" ? communityOrigin(source.communityUrl) : "",
     connections,
     ...(activeConnectionId ? { activeConnectionId } : {}),
     ...(optionalString(source.workspacePath) ? { workspacePath: source.workspacePath.trim() } : {}),
     permissionMode: PERMISSION_MODES.has(source.permissionMode) ? source.permissionMode : "ask",
     theme: THEMES.has(source.theme) ? source.theme : "system",
     edition: EDITIONS.has(source.edition) ? source.edition : "standard",
+    recordRawRequests: source.recordRawRequests !== false,
+    ...(source.capabilities !== undefined ? { capabilities: resolveCapabilities(source.capabilities) } : {}),
   };
 }
 
@@ -316,6 +372,7 @@ function approvalPayload(request, requestId) {
   const source = request && typeof request === "object" ? request : {};
   return {
     requestId,
+    ...(source.source || compareService?.source(source.sessionId)?.source ? { source: source.source ?? compareService.source(source.sessionId).source } : {}),
     ...(optionalString(source.sessionId) ? { sessionId: source.sessionId.trim() } : {}),
     ...(optionalString(source.toolCallId) ? { toolCallId: source.toolCallId.trim() } : {}),
     toolName: optionalString(source.toolName) ?? "工具",
@@ -330,24 +387,25 @@ function settleApproval(requestId, allow) {
   if (!pending) return false;
   pendingApprovals.delete(requestId);
   clearTimeout(pending.timer);
-  pending.resolve(allow);
+  pending.resolve(allow === false ? { decision: "deny" } : allow);
+  sendToWindow("desktop:approval-closed", { requestId });
   return true;
 }
 
 function settleAllApprovals() {
-  for (const requestId of [...pendingApprovals.keys()]) settleApproval(requestId, false);
+  for (const requestId of [...pendingApprovals.keys()]) settleApproval(requestId, { decision: "cancelled" });
 }
 
 async function requestToolApproval(request) {
   const config = await getConfig();
-  if (config.permissionMode === "bypass") return true;
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if ((request.permissionMode ?? config.permissionMode) === "bypass") return true;
+  if (!mainWindow || mainWindow.isDestroyed()) return { decision: "cancelled" };
   const requestId = optionalString(request?.requestId) ?? randomUUID();
-  if (pendingApprovals.has(requestId)) settleApproval(requestId, false);
+  if (pendingApprovals.has(requestId)) settleApproval(requestId, { decision: "cancelled" });
   return new Promise((resolveApproval) => {
-    const timer = setTimeout(() => settleApproval(requestId, false), APPROVAL_TIMEOUT_MS);
+    const timer = setTimeout(() => settleApproval(requestId, { decision: "timeout" }), APPROVAL_TIMEOUT_MS);
     timer.unref?.();
-    pendingApprovals.set(requestId, { resolve: resolveApproval, timer });
+    pendingApprovals.set(requestId, { resolve: resolveApproval, timer, sessionId: request.sessionId, turnId: request.turnId });
     mainWindow.webContents.send("desktop:approval", approvalPayload(request, requestId));
   });
 }
@@ -377,8 +435,19 @@ async function catalogProviderIds() {
   }
 }
 
-/** Start (or reuse) the DSH engine for the active connection. */
-async function ensureDshEngine(config) {
+/**
+ * Start (or reuse) the DSH engine for the active connection. Calls are
+ * serialized: the background start at launch and the first session-list
+ * request otherwise race past the "no engine yet" check and spawn two engines.
+ */
+let dshEngineLock = Promise.resolve();
+function ensureDshEngine(config) {
+  const run = dshEngineLock.then(() => ensureDshEngineNow(config));
+  dshEngineLock = run.catch(() => undefined);
+  return run;
+}
+
+async function ensureDshEngineNow(config) {
   const selected = activeConnection(config);
   if (!selected) throw new Error("请先添加并选择一个模型连接。");
   const route = dshRoute(selected, await catalogProviderIds());
@@ -413,12 +482,20 @@ async function ensureDshEngine(config) {
         sendToWindow("desktop:stream", { type: "background-done", sessionId });
         void notifyBackgroundTurn(sessionId);
       },
-      onApproval: async (request) => requestToolApproval({ ...request, permissionMode: (await getConfig()).permissionMode }),
+      onApproval: requestToolApproval,
+      onTrace: acceptTrace,
       onLog: (line) => { if (!line.includes("reasoning")) console.error(`[DSH] ${line}`); },
     });
   }
   const engine = dshEngine;
-  await engine.start();
+  if (!engine.running) {
+    const startedAt = Date.now();
+    console.error("[BuildMe] 正在启动全量版引擎（DSH）…");
+    await engine.start();
+    console.error(`[BuildMe] 全量版引擎已就绪，用时 ${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`);
+  } else {
+    await engine.start();
+  }
   if (!scheduleResumedEngines.has(engine)) {
     scheduleResumedEngines.add(engine);
     void resumeScheduledSessions(engine, route);
@@ -442,9 +519,13 @@ async function resumeScheduledSessions(engine, route) {
 
 /** In full edition the engine starts with the app, so reminders run without a prompt. */
 async function startFullEditionInBackground() {
+  const launchedAt = Date.now();
   try {
     const config = await getConfig();
-    if (config.edition === "full") await ensureDshEngine(config);
+    if (config.edition === "full") {
+      await ensureDshEngine(config);
+      console.error(`[BuildMe] 全量版后台启动完成，距窗口创建 ${((Date.now() - launchedAt) / 1000).toFixed(1)} 秒`);
+    }
   } catch (error) {
     console.error(`[DSH] 全量版后台启动失败：${error instanceof Error ? error.message : String(error)}`);
   }
@@ -517,6 +598,7 @@ async function fullSend(prompt, requestedSession) {
       text: prompt,
       cwd: config.workspacePath ?? app.getPath("home"),
       permissionMode: config.permissionMode,
+      recordRawRequests: config.recordRawRequests,
     });
   } finally {
     fullRunPending = false;
@@ -525,7 +607,43 @@ async function fullSend(prompt, requestedSession) {
   }
   await recordFullSession(result.sessionId, prompt);
   if (result.reason === "error") throw new Error(result.error || "DSH 运行失败。");
-  return { sessionId: result.sessionId, text: result.text, cancelled: result.reason === "cancelled" };
+  return { sessionId: result.sessionId, text: result.text, cancelled: result.reason === "aborted" };
+}
+
+let compareService;
+let explanationService;
+function getExplanations() {
+  return explanationService ??= createExplanationService({
+    root: appDataPath("explanations"), traceStore: getTraceStore, comparisons: getComparisons,
+    connection: async () => {
+      const selected = activeConnection(await getConfig());
+      if (!selected) throw new Error("请先在设置里添加并选择模型连接。");
+      const key = resolvedApiKey(selected), connection = { provider: selected.provider, model: selected.model, ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}), ...(key ? { apiKey: key } : {}) };
+      const llm = findRuntimeService(await ensureHarness(), "llm");
+      return { connection, resolved: llm.resolveConnection(connection) };
+    },
+    notify: (event) => sendToWindow("desktop:explanation", event), learning: recordLearning,
+  });
+}
+function getComparisons() {
+  return compareService ??= createCompareService({
+    root: appDataPath("comparisons"), applicationRoot: resolve(here, ".."), config: getConfig,
+    keyFor: resolvedApiKey, runtime: ensureHarness, service: findRuntimeService, traceStore: getTraceStore, onTrace: acceptTrace,
+    approval: requestToolApproval, notify: (event) => sendToWindow("desktop:compare", event), learning: recordLearning,
+  });
+}
+
+function acceptTrace(notification) {
+      try {
+        const safe = redactTrace(notification);
+        if (safe.type === "turn-end") safe.turn.moment = traceMoment(safe.turn);
+        compareService?.trace(safe);
+        void getTraceStore().accept(safe);
+        if (safe.type === "turn-end") void recordLearning({ type: "turn", turn: safe.turn });
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("desktop:xray", safe);
+      } catch {
+        console.warn("[X 光] 桌面记录失败，本回合的观察数据可能不完整。");
+      }
 }
 
 function ensureHarness() {
@@ -536,9 +654,11 @@ function ensureHarness() {
     const profile = await loadProfile(await ensureProfile());
     const runtime = await createApp(profile);
     stopStream = runtime.ctx.on("piharness/agent-event", (sessionId, event) => {
+      if (compareService?.ownsSession(sessionId)) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        mainWindow.webContents.send("desktop:stream", { type: "text", sessionId, delta: event.assistantMessageEvent.delta });
+      if (event.type === "message_start" && event.message.role === "assistant") mainWindow.webContents.send("desktop:stream", { type: "response-start", sessionId });
+      if (event.type === "message_update" && ["text_delta", "thinking_delta"].includes(event.assistantMessageEvent.type)) {
+        mainWindow.webContents.send("desktop:stream", { type: event.assistantMessageEvent.type === "thinking_delta" ? "reasoning" : "text", sessionId, delta: event.assistantMessageEvent.delta });
         return;
       }
       if (event.type === "tool_execution_start") {
@@ -546,6 +666,9 @@ function ensureHarness() {
       }
     });
     stopApprovals = runtime.ctx.on("piharness/tool-approval-request", requestToolApproval);
+    stopTrace = runtime.ctx.on("piharness/trace", (notification) => {
+      acceptTrace(notification);
+    });
     harnessApp = runtime;
     return runtime;
   })().catch((error) => {
@@ -597,16 +720,21 @@ function messageText(message) {
 async function sessionMessages(sessionId) {
   const sessions = await requireRuntimeService("sessions");
   const events = await sessions.read(sessionId);
+  let turnIndex = 0;
   return events.flatMap((event) => {
+    if (event.type === "user/message") turnIndex += 1;
     if (event.type !== "user/message" && event.type !== "assistant/message" && event.type !== "tool/result") return [];
     const message = event.data && typeof event.data === "object" ? event.data.message : undefined;
     const text = messageText(message);
-    if (!text) return [];
+    const reasoning = event.type === "assistant/message" && Array.isArray(message.content) ? message.content.filter(block => block.type === "thinking").map(block => block.thinking).join("\n") : "";
+    if (!text && !reasoning) return [];
     return [{
       id: event.id,
       role: event.type === "user/message" ? "user" : event.type === "assistant/message" ? "assistant" : "tool",
       text,
+      ...(reasoning ? { reasoning } : {}),
       at: event.at,
+      turnIndex,
     }];
   });
 }
@@ -689,6 +817,7 @@ async function desktopState() {
       }))
     : [];
   return {
+    communityUrl: config.communityUrl,
     name: profile.profile.settings.name,
     configured: Boolean(connections.find((connection) => connection.active)?.configured),
     connections,
@@ -697,6 +826,8 @@ async function desktopState() {
     permissionMode: config.permissionMode,
     theme: config.theme,
     edition: config.edition,
+    recordRawRequests: config.recordRawRequests,
+    ...await capabilityState(config),
     fullTools: config.edition === "full" && dshEngine?.running
       ? await dshEngine.request("tools/list").then((tools) => tools.map((tool) => tool.name), () => [])
       : [],
@@ -812,6 +943,7 @@ async function setEdition(value) {
   return desktopState();
 }
 
+let community;
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1040,
@@ -827,14 +959,59 @@ function createWindow() {
       sandbox: true,
     },
   });
+  community = createCommunity(mainWindow);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (["https:", "http:"].includes(new URL(url).protocol)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   mainWindow.on("closed", () => {
+    community.dispose();
     settleAllApprovals();
     mainWindow = undefined;
   });
   mainWindow.loadFile(join(here, "renderer", "index.html"));
 }
 
+function communityHandle(channel,handler) {
+  ipcMain.handle(channel,(event,...args)=>{
+    if(event.sender!==mainWindow?.webContents || event.senderFrame!==mainWindow.webContents.mainFrame)throw new Error("社区设置仅允许本机窗口操作");
+    return handler(...args);
+  });
+}
+communityHandle('desktop:community-open',async ()=>community.open((await getConfig()).communityUrl));
+communityHandle('desktop:community-hide',()=>community.hide());
+communityHandle('desktop:community-bounds',bounds=>community.resize(bounds));
+communityHandle('desktop:community-config',async value=>{const origin=communityOrigin(value),config=await getConfig();config.communityUrl=origin;await saveConfig(config);community.reset();return origin;});
+communityHandle('desktop:community-share',async (type,id)=>{
+  const config=await getConfig();if(!config.communityUrl)throw new Error('社区即将开放，请先在设置中配置社区网址。');
+  let data;
+  if(type==='compare')data=compareShare(await getComparisons().details(requireSessionId(id)));
+  else if(type==='achievement'){await learningPending;data=achievementShare(await getAchievements().snapshot(config.capabilities??['core']),ACHIEVEMENTS,requireSessionId(id));}
+  else throw new Error('分享类型无效');
+  await community.open(config.communityUrl,shareUrl(config.communityUrl,type,data,nativeTheme.shouldUseDarkColors?'dark':'light'));
+  return true;
+});
+
 ipcMain.handle("desktop:state", () => desktopState());
+ipcMain.handle("desktop:achievements", async () => {
+  await learningPending;
+  return { ...await getAchievements().snapshot((await getConfig()).capabilities ?? ["core"]), definitions: ACHIEVEMENTS };
+});
+ipcMain.handle("desktop:learning-event", async (_event, payload) => {
+  if (!payload || !["xray-opened", "xray-tab", "explain-clicked"].includes(payload.type)) throw new Error("学习事件类型不正确。");
+  const id = requiredConnectionField(payload.id, "事件标识", 128);
+  const turnId = payload.turnId === undefined ? undefined : requireSessionId(payload.turnId);
+  if (payload.type === "xray-tab" && !["prompt", "raw"].includes(payload.tab)) throw new Error("X 光标签不正确。");
+  return recordLearning({ id, at: new Date().toISOString(), type: payload.type, ...(turnId ? { turnId } : {}), ...(payload.type === "xray-tab" ? { tab: payload.tab } : {}) });
+});
+ipcMain.handle("desktop:export-learning", async () => {
+  await learningPending;
+  const data = await getAchievements().snapshot((await getConfig()).capabilities ?? ["core"]);
+  const destination = await dialog.showSaveDialog(mainWindow, { title: "导出学习记录", defaultPath: "buildme-learning.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+  if (destination.canceled || !destination.filePath) return { cancelled: true };
+  await writeFile(destination.filePath, JSON.stringify(data, null, 2), { mode: 0o600 });
+  return { cancelled: false, path: destination.filePath };
+});
 ipcMain.handle("desktop:catalog", async () => {
   const runtime = await ensureHarness();
   const llm = findRuntimeService(runtime, "llm");
@@ -853,6 +1030,91 @@ ipcMain.handle("desktop:messages", async (_event, sessionId) => {
   }
   return sessionMessages(id);
 });
+ipcMain.handle("desktop:compare-list", () => getComparisons().list());
+ipcMain.handle("desktop:explain", (_event, requestId, target) => {
+  requestId = requireSessionId(requestId);
+  if (target?.kind === "comparison") getExplanations().start(requestId, { kind: "comparison", compareGroupId: requireSessionId(target.compareGroupId) });
+  else if (target?.kind === "event") {
+    if (target.segmentIndex !== undefined && (!Number.isSafeInteger(target.segmentIndex) || target.segmentIndex < 0)) throw new Error("提示词段序号不正确。");
+    if (target.eventId !== undefined && target.segmentIndex !== undefined) throw new Error("请选择一个事件或一段提示词。");
+    getExplanations().start(requestId, { kind: "event", turnId: requireSessionId(target.turnId), ...(target.eventId !== undefined ? { eventId: requireSessionId(target.eventId) } : {}), ...(target.segmentIndex !== undefined ? { segmentIndex: target.segmentIndex } : {}) });
+  } else throw new Error("未知的讲解类型。");
+});
+ipcMain.handle("desktop:explain-cancel", (_event, requestId) => explanationService?.cancel(requireSessionId(requestId)));
+ipcMain.handle("desktop:compare-create", (_event, payload) => getComparisons().create(payload));
+ipcMain.handle("desktop:compare-get", (_event, id) => getComparisons().details(requireSessionId(id)));
+ipcMain.handle("desktop:compare-send", (_event, id, prompt) => getComparisons().coordinator.send(requireSessionId(id), parsePrompt(prompt)));
+ipcMain.handle("desktop:compare-stop", async (_event, id) => {
+  id = requireSessionId(id);
+  for (const [requestId, pending] of pendingApprovals) if (compareService?.source(pending.sessionId)?.groupId === id) settleApproval(requestId, { decision: "cancelled" });
+  await getComparisons().coordinator.stop(id);
+});
+ipcMain.handle("desktop:compare-delete", (_event, id) => getComparisons().remove(requireSessionId(id)));
+ipcMain.handle("desktop:compare-adopt", async (_event, id, side, token) => {
+  id = requireSessionId(id);
+  const { group } = await getComparisons().details(id);
+  const preview = group.differences[side];
+  if (!preview || preview.token !== token) throw new Error("请先查看最新的完整改动清单。");
+  const choice = await dialog.showMessageBox(mainWindow, { type: "warning", title: "采用对比改动", message: `将 ${preview.changes.length} 项改动写入真实工作区`, detail: `${group.workspace.source}\n${preview.changes.map((c) => `${c.kind} ${c.path}`).join("\n")}`, buttons: ["取消", "确认采用"], defaultId: 0, cancelId: 0 });
+  if (choice.response !== 1) return { applied: [], conflicts: [], cancelled: true };
+  return getComparisons().adopt(id, side, token);
+});
+ipcMain.handle("desktop:compare-xray-opened", async (_event, id) => {
+  const { group, metrics } = await getComparisons().details(requireSessionId(id));
+  const left = metrics.left?.tools, right = metrics.right?.tools;
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "compare-xray-opened", toolsDiffer: Boolean(left && right && JSON.stringify(left) !== JSON.stringify(right)), ...(group.rounds.at(-1)?.runs.left.turnIds[0] ? { turnId: group.rounds.at(-1).runs.left.turnIds[0] } : {}) });
+});
+ipcMain.handle("desktop:xray-turns", async (_event, sessionId, engine) => {
+  const config = await getConfig();
+  if (engine !== undefined && engine !== "pi" && engine !== "dsh") throw new Error("未知的引擎。");
+  return getTraceStore().turns(engine ?? (config.edition === "full" ? "dsh" : "pi"), requireSessionId(sessionId));
+});
+ipcMain.handle("desktop:xray-turn", (_event, turnId) => getTraceStore().turn(requireSessionId(turnId)));
+ipcMain.handle("desktop:xray-ledger", async (_event, turnId) => {
+  const store = getTraceStore();
+  const turn = await store.turn(requireSessionId(turnId));
+  if (!turn) throw new Error("这条 X 光记录已被清理，无法读取用量账单。");
+  return tokenLedger(turn, (id) => store.turn(id));
+});
+ipcMain.handle("desktop:xray-prompt-source", async (_event, turnId, segmentIndex, open) => {
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || typeof open !== "boolean") throw new Error("提示词来源参数不正确。");
+  const turn = await getTraceStore().turn(requireSessionId(turnId));
+  const source = turn?.promptSegments[segmentIndex]?.sourcePath;
+  if (!source) throw new Error("这段提示词没有记录来源路径。");
+  if (!isAbsolute(source) && !source.startsWith("bundles/")) throw new Error("相对路径缺少原始目录，请复制路径查找。");
+  const path = await realpath(isAbsolute(source) ? source : resolve(here, "..", source));
+  const bundles = await realpath(join(here, "..", "bundles"));
+  const withinBundles = relative(bundles, path);
+  const readOnly = withinBundles !== ".." && !withinBundles.startsWith(`..${sep}`) && !isAbsolute(withinBundles);
+  if (!isAbsolute(source) && !readOnly) throw new Error("来源路径不在内置提示词目录中。");
+  if (!(await stat(path)).isFile() || ![".md", ".txt", ".json", ".yaml", ".yml", ".toml"].includes(extname(path).toLowerCase())) throw new Error("仅支持打开提示词文本文件，请复制路径查找。");
+  if (open) {
+    if (readOnly) throw new Error("内置文件只提供路径复制。");
+    const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+  }
+  return { path, readOnly };
+});
+ipcMain.handle("desktop:set-record-raw-requests", async (_event, enabled) => {
+  if (typeof enabled !== "boolean") throw new Error("原始请求记录选项不正确。");
+  await saveConfig({ ...await getConfig(), recordRawRequests: enabled });
+  return enabled;
+});
+ipcMain.handle("desktop:set-capability", async (_event, id, enabled) => {
+  if (typeof id !== "string" || typeof enabled !== "boolean") throw new Error("能力配置格式不正确。");
+  const config = await getConfig();
+  const capabilities = toggleCapability(config.capabilities ?? ["core"], id, enabled);
+  const saved = await saveConfig({ ...config, capabilities });
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "capability-toggled", capabilities, enabledIds: capabilities.filter((id) => !(config.capabilities ?? ["core"]).includes(id)) });
+  return capabilityState(saved);
+});
+ipcMain.handle("desktop:choose-capabilities", async (_event, choice) => {
+  if (choice !== "minimal" && choice !== "all") throw new Error("请选择最小能力或全部能力。");
+  const config = await getConfig();
+  const saved = await saveConfig({ ...config, capabilities: choice === "all" ? ALL_CAPABILITIES : ["core"] });
+  await recordLearning({ id: randomUUID(), at: new Date().toISOString(), type: "capability-toggled", capabilities: saved.capabilities, enabledIds: saved.capabilities.filter((id) => !(config.capabilities ?? ["core"]).includes(id)) });
+  return capabilityState(saved);
+});
 ipcMain.handle("desktop:send", async (_event, payload) => {
   const prompt = parsePrompt(payload?.prompt);
   const requestedSession = parseSessionId(payload?.sessionId);
@@ -866,30 +1128,38 @@ ipcMain.handle("desktop:send", async (_event, payload) => {
   const knownProvider = typeof llm.catalog === "function"
     && llm.catalog().some((provider) => provider.id === selected.provider);
   if (!knownProvider && !selected.baseUrl) throw new Error("未知 Provider 需要配置 Base URL。");
-  return agents.run(prompt, {
-    ...(requestedSession ? { sessionId: requestedSession } : {}),
-    connection: {
-      provider: selected.provider,
-      model: selected.model,
-      ...(apiKey ? { apiKey } : {}),
-      ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}),
-    },
-    ...(config.workspacePath ? { workspacePath: config.workspacePath } : {}),
-    permissionMode: config.permissionMode,
-    // Build mode always runs with every BuildMe tool (documents, web, skills, plans, delegation).
-    edition: "full",
-  });
+  try {
+    return await agents.run(prompt, {
+      ...(requestedSession ? { sessionId: requestedSession } : {}),
+      connection: {
+        provider: selected.provider,
+        model: selected.model,
+        ...(apiKey ? { apiKey } : {}),
+        ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}),
+      },
+      ...(config.workspacePath ? { workspacePath: config.workspacePath } : {}),
+      permissionMode: config.permissionMode,
+      edition: "full",
+      capabilities: config.capabilities ?? ["core"],
+      recordRawRequests: config.recordRawRequests,
+    });
+  } finally {
+    await traceStore?.flush();
+    await learningPending;
+  }
 });
 ipcMain.handle("desktop:abort", async (_event, sessionId) => {
   const requestedSession = parseSessionId(sessionId);
   if ((await getConfig()).edition === "full") {
     const target = requestedSession ?? activeFullSessionId;
     if (!dshEngine || !target) return { cancelled: false };
+    for (const [id, pending] of pendingApprovals) if (pending.sessionId === target) settleApproval(id, { decision: "cancelled" });
     return dshEngine.request("session/cancel", { sessionId: target });
   }
   const agents = await requireRuntimeService("agents");
   const activeSession = requestedSession
     ?? agents.list().find((agent) => agent.status === "busy")?.id;
+  for (const [id, pending] of pendingApprovals) if (pending.sessionId === activeSession) settleApproval(id, { decision: "cancelled" });
   return agents.abort(activeSession);
 });
 ipcMain.handle("desktop:save-connection", (_event, payload) => saveConnection(payload));
@@ -903,9 +1173,16 @@ ipcMain.handle("desktop:set-edition", (_event, edition) => setEdition(edition));
 ipcMain.handle("desktop:approval-response", (_event, requestId, allow) => {
   const id = requiredConnectionField(requestId, "审批请求标识", 128);
   if (typeof allow !== "boolean") throw new Error("审批结果格式不正确。");
-  return { accepted: settleApproval(id, allow) };
+  const pending = pendingApprovals.get(id);
+  const accepted = settleApproval(id, allow);
+  if (accepted) void recordLearning({ id: `approval:${id}`, at: new Date().toISOString(), type: "approval-answered", decision: allow ? "allow" : "deny", ...(pending.turnId ? { turnId: pending.turnId } : {}) });
+  return { accepted };
 });
 ipcMain.handle("desktop:read-clipboard-text", () => clipboard.readText());
+ipcMain.handle("desktop:write-clipboard-text", (_event, text) => {
+  if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 16 * 1024 * 1024) throw new Error("复制内容必须是 16 MiB 以内的文本。");
+  clipboard.writeText(text);
+});
 ipcMain.handle("desktop:open-full-edition", () => setEdition("full"));
 ipcMain.handle("desktop:open-market", async (_event, id) => {
   if (typeof id !== "string" || !(id in MARKET_URLS)) throw new Error("插件市场来源不正确。");
@@ -964,7 +1241,7 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 async function configureNetworkProxy() {
   if (!hasProxyEnv()) {
     try {
-      const proxy = proxyUrlFromPac(await session.defaultSession.resolveProxy("https://api.openalex.org"));
+      const proxy = proxyUrlFromPac(await session.defaultSession.resolveProxy("https://github.com"));
       if (proxy) {
         process.env.HTTPS_PROXY = proxy;
         process.env.HTTP_PROXY = proxy;
@@ -1001,7 +1278,12 @@ app.on("before-quit", (event) => {
   const pendingHarness = harnessPromise;
   Promise.allSettled([stopStream, stopApprovals].map((stop) => Promise.resolve().then(() => stop?.())))
     .then(async () => {
+      await explanationService?.close();
+      await compareService?.close();
       await Promise.allSettled([(harnessApp ?? await pendingHarness)?.stop(), stopDshEngine()]);
+      stopTrace?.();
+      await traceStore?.flush();
+      await learningPending;
     })
     .catch((error) => console.error(`Agent 退出清理失败：${error instanceof Error ? error.message : String(error)}`))
     .finally(() => app.quit());

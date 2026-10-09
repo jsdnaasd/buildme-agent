@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type AgentMessage, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { Service, type Context } from "@deepseek-ai/cordis";
 
@@ -13,15 +13,31 @@ import type {
 	HarnessAgentStatus,
 	ResumeAgentOptions,
 } from "./agent-registry.js";
+import { redactDurable, redactError } from "./redact.js";
 import { ContextCompactor } from "./context-compaction.js";
 import type { SessionLease } from "./session-store.js";
+import { contextBreakdown, TraceCollector } from "./trace-collector.js";
+import { resolveCapabilities } from "./capabilities.js";
+import { estimateTokens } from "./trace.js";
+import { traceAttempt } from "./trace-redact.js";
 
 export interface AgentRunOptions {
 	readonly sessionId?: string;
 	readonly connection?: AgentConnection;
 	readonly workspacePath?: string;
+	readonly compareGroupId?: string;
+	readonly comparePolicy?: import("./compare-policy.js").ComparePolicy;
 	readonly permissionMode?: AgentPermissionMode;
 	readonly edition?: AgentEdition;
+	readonly recordRawRequests?: boolean;
+	readonly capabilities?: readonly string[];
+	readonly signal?: AbortSignal;
+	readonly parentTrace?: {
+		readonly collector: TraceCollector;
+		readonly kind: "delegate_task" | "workflow_run";
+		readonly toolCallId: string;
+		readonly stepIndex?: number;
+	};
 }
 
 export interface AgentRunResult {
@@ -175,35 +191,6 @@ function sha256(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
 }
 
-function redactError(error: unknown, secrets: readonly (string | undefined)[]): Error {
-	const source = error instanceof Error ? error.message : String(error);
-	let message = source;
-	for (const secret of secrets) {
-		if (secret && message.includes(secret)) message = message.split(secret).join("[redacted]");
-	}
-	const sanitized = new Error(message);
-	if (error instanceof Error) sanitized.name = error.name;
-	return sanitized;
-}
-
-function redactDurable(value: unknown, secrets: readonly (string | undefined)[]): unknown {
-	if (typeof value === "string") {
-		let redacted = value;
-		for (const secret of secrets) {
-			if (secret && redacted.includes(secret)) redacted = redacted.split(secret).join("[redacted]");
-		}
-		return redacted;
-	}
-	if (value instanceof Error) {
-		const sanitized = redactError(value, secrets);
-		if (value.stack) sanitized.stack = redactDurable(value.stack, secrets) as string;
-		return sanitized;
-	}
-	if (Array.isArray(value)) return value.map((item) => redactDurable(item, secrets));
-	if (!value || typeof value !== "object") return value;
-	return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactDurable(item, secrets)]));
-}
-
 /** Pi Agent Core implementation of DSH's replaceable AgentFactory seam. */
 export class PiAgentLoop extends Service implements AgentFactory {
 	private readonly active = new Map<string, Agent>();
@@ -276,6 +263,8 @@ export class PiAgentLoop extends Service implements AgentFactory {
 	}
 
 	run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		if (options.comparePolicy) options = { ...options, comparePolicy: Object.freeze({ ...options.comparePolicy }) };
+		if (options.capabilities !== undefined) options = { ...options, capabilities: resolveCapabilities(options.capabilities) };
 		if (this.closed) return Promise.reject(new Error("Agent runtime is shutting down."));
 		if (options.sessionId && this.pendingSessions.has(options.sessionId)) {
 			return Promise.reject(new Error(`Session ${options.sessionId} already has an active run.`));
@@ -314,7 +303,15 @@ export class PiAgentLoop extends Service implements AgentFactory {
 		const lease = await this.ctx.sessions.acquire(sessionId);
 		let unsubscribe: (() => void) | undefined;
 		let requestApiKey = options.connection?.apiKey;
+		let trace: TraceCollector | undefined;
+		const parent = options.parentTrace;
+		const started = performance.now();
+		let childResult = "";
+		let childFailed = true;
+		const onAbort = () => this.abort(sessionId);
+		options.signal?.addEventListener("abort", onAbort, { once: true });
 		try {
+			options.signal?.throwIfAborted();
 			this.assertRunMayStart(sessionId);
 			const settings = this.ctx.settings.value.agent;
 			const configuredApiKey = settings.apiKeyEnv === undefined ? undefined : (process.env[settings.apiKeyEnv] || undefined);
@@ -331,23 +328,64 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				this.ctx.sessions.readMessages(sessionId),
 				this.ctx.sessions.readCompaction(sessionId),
 			]);
-			const compactor = new ContextCompactor({
+			const sections = this.ctx.systemPrompt.renderSections(options.capabilities);
+			const systemPrompt = sections.map((section) => section.text).join("\n\n") || settings.systemPrompt;
+			trace = traceAttempt(() => new TraceCollector((notification) => this.ctx.emit("piharness/trace", notification), [requestApiKey], options.recordRawRequests));
+			traceAttempt(() => {
+				if (parent && trace) parent.collector.event({
+					type: "subagent.start", childTurnId: trace.id, kind: parent.kind, task: prompt, toolCallId: parent.toolCallId,
+					...(parent.stepIndex === undefined ? {} : { stepIndex: parent.stepIndex }),
+				});
+			});
+			traceAttempt(() => trace?.beginTurn({
+				...(options.compareGroupId ? { compareGroupId: options.compareGroupId } : {}),
+				engine: "pi", sessionId, turnIndex: previousMessages.filter((message) => message.role === "user").length + 1,
+				...(parent ? { parentTurnId: parent.collector.id, parentToolCallId: parent.toolCallId } : {}),
+				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
+				userPrompt: prompt, model: { provider: model.provider, id: model.id, contextWindow: model.contextWindow },
+				fidelity: { promptSegments: true, rawRequest: options.recordRawRequests !== false, usage: "exact", subagents: true, compaction: true, approvals: true },
+				promptSegments: (sections.length ? sections : [{ name: "base:settings", text: systemPrompt, source: "base" as const }]).map((section) => ({
+					name: section.name, source: section.source ?? "other", text: section.text, chars: section.text.length, estTokens: estimateTokens(section.text),
+					...("sourcePath" in section && section.sourcePath ? { sourcePath: section.sourcePath } : {}),
+					...("capabilityId" in section && section.capabilityId ? { capabilityId: section.capabilityId } : {}),
+				})),
+			}));
+			const contextWindow = model.contextWindow > 0 ? model.contextWindow : 128_000;
+			const contextLimit = contextWindow - Math.min(16_384, Math.floor(contextWindow * 0.2));
+			const observedStream = traceAttempt(() => trace?.wrapStream(resolved.stream, contextLimit)) ?? resolved.stream;
+			const compact = options.capabilities === undefined || options.capabilities.includes("compaction");
+			const traceStream: StreamFn = (model, context, streamOptions) => {
+				if (!compact) traceAttempt(() => {
+					const usage = contextBreakdown(context, contextLimit);
+					if (usage.total > contextLimit) trace?.event({ type: "context.overflow", estTokens: usage.total, limit: contextLimit });
+				});
+				return observedStream(model, context, streamOptions);
+			};
+			const compactor = compact ? new ContextCompactor({
 				model,
-				stream: resolved.stream,
+				stream: traceStream,
 				initial: compaction,
+				onClipped: (clip) => traceAttempt(() => trace?.event({ type: "context.clipped", ...clip })),
 				onCompacted: async ({ summary, coveredMessages, tokensBefore }) => {
+					traceAttempt(() => trace?.event({ type: "context.compacted", tokensBefore, coveredMessages, summaryPreview: summary }));
 					await lease.append("context/compacted", {
 						summary: redactDurable(summary, [requestApiKey]) as string,
 						coveredMessages,
 						tokensBefore,
 					});
 				},
-			});
-			const systemPrompt = this.ctx.systemPrompt.render() || settings.systemPrompt;
+			}) : undefined;
 			const workspacePath = options.workspacePath ?? process.cwd();
 			const permissionMode = options.permissionMode ?? "ask";
 			const edition = options.edition ?? "standard";
-			const tools = [...this.ctx.tools.list({ workspacePath, permissionMode, edition, connection })];
+			const tools = [...this.ctx.tools.list({
+				workspacePath, permissionMode, edition, connection,
+				...(options.comparePolicy ? { comparePolicy: options.comparePolicy } : {}),
+				...(options.compareGroupId ? { compareGroupId: options.compareGroupId } : {}),
+				...(options.capabilities === undefined ? {} : { capabilities: options.capabilities }),
+				recordRawRequests: options.recordRawRequests !== false,
+				...(trace ? { trace } : {}),
+			})];
 			const agent = new Agent({
 				initialState: {
 					systemPrompt,
@@ -356,22 +394,29 @@ export class PiAgentLoop extends Service implements AgentFactory {
 					tools,
 					thinkingLevel: settings.thinkingLevel ?? "off",
 				},
-				streamFn: resolved.stream,
-				transformContext: (messages, signal) => compactor.transform(messages, signal),
+				streamFn: traceStream,
+				transformContext: (messages, signal) => compactor ? compactor.transform(messages, signal) : Promise.resolve(messages),
 				sessionId,
 				toolExecution: settings.toolExecution ?? "parallel",
 				beforeToolCall: async ({ toolCall, args }, signal) => {
 					const decision = await this.ctx.tools.authorize(
 						{
 							sessionId,
+							...(trace ? { turnId: trace.id } : {}),
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: redactDurable(args, [requestApiKey]),
 							workspacePath,
+							...(options.comparePolicy ? { comparePolicy: options.comparePolicy } : {}),
 							permissionMode,
 						},
 						signal,
 					);
+					traceAttempt(() => trace?.event({
+						type: "tool.approval", toolCallId: toolCall.id, permissionMode,
+						decision: decision.allow ? (decision.source === "user" ? "user-allow" : "auto-allow") : (decision.source === "cancelled" || decision.source === "timeout" ? decision.source : decision.source === "user" ? "user-deny" : "policy-deny"),
+						...(!decision.allow ? { reason: decision.reason } : {}),
+					}));
 					if (decision.allow) return undefined;
 					return {
 						block: true,
@@ -383,7 +428,10 @@ export class PiAgentLoop extends Service implements AgentFactory {
 
 			this.assertRunMayStart(sessionId);
 			this.active.set(sessionId, agent);
-			unsubscribe = agent.subscribe(async (event) => this.onAgentEvent(lease, event, requestApiKey));
+			unsubscribe = agent.subscribe(async (event) => {
+				traceAttempt(() => trace?.onAgentEvent(event, permissionMode, settings.toolExecution !== "sequential", tools.filter((tool) => tool.executionMode === "sequential").map((tool) => tool.name)));
+				await this.onAgentEvent(lease, event, requestApiKey);
+			});
 			await lease.append("run/started", {
 				provider: model.provider,
 				model: model.id,
@@ -409,14 +457,27 @@ export class PiAgentLoop extends Service implements AgentFactory {
 				error: agent.state.errorMessage ?? null,
 			});
 			this.ctx.emit("piharness/run-completed", result);
+			traceAttempt(() => trace?.endTurn("done", undefined, result.text));
+			childResult = result.text;
+			childFailed = false;
 			return result;
 		} catch (error) {
 			const exposed = redactError(error, [requestApiKey]);
+			childResult = exposed.message;
+			traceAttempt(() => trace?.event({ type: "error", message: exposed.message }));
+			traceAttempt(() => trace?.endTurn(this.abortRequested.has(sessionId) || options.signal?.aborted ? "aborted" : "error", exposed.message));
 			await lease.append("agent/error", {
 				message: exposed.message,
 			});
 			throw exposed;
 		} finally {
+			options.signal?.removeEventListener("abort", onAbort);
+			traceAttempt(() => {
+				if (parent && trace) parent.collector.event({
+					type: "subagent.end", childTurnId: trace.id, toolCallId: parent.toolCallId,
+					durationMs: Math.round(performance.now() - started), resultPreview: childResult, isError: childFailed,
+				});
+			});
 			unsubscribe?.();
 			this.active.delete(sessionId);
 			this.abortRequested.delete(sessionId);

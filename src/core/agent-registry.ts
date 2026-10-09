@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Service, type Context } from "@deepseek-ai/cordis";
 
 import type { AgentRunOptions, AgentRunResult } from "./pi-agent-runtime.js";
+import { resolveCapabilities } from "./capabilities.js";
 
 export type HarnessAgentStatus = "idle" | "busy" | "disposed";
 
@@ -100,6 +101,9 @@ export class AgentRegistry extends Service {
 	}
 
 	async run(prompt: string, options: AgentRunOptions = {}): Promise<AgentRunResult> {
+		if (options.comparePolicy) options = { ...options, comparePolicy: Object.freeze({ ...options.comparePolicy }) };
+		if (options.capabilities !== undefined) options = { ...options, capabilities: resolveCapabilities(options.capabilities) };
+		options.signal?.throwIfAborted();
 		const { sessionId, ...runOptions } = options;
 		const handle = sessionId !== undefined
 			? await this.resume({ resumeSessionId: sessionId })

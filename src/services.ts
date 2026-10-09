@@ -1,4 +1,8 @@
 export { SettingsService } from "./core/settings.js";
+export * from "./core/trace.js";
+export { TraceCollector } from "./core/trace-collector.js";
+export { TraceStore } from "./core/trace-store.js";
+export { redactTrace } from "./core/trace-redact.js";
 export {
 	JsonlSessionStore,
 	type DurableSessionEvent,

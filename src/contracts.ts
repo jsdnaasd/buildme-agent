@@ -9,6 +9,7 @@ import type { SystemPromptRuntime } from "./core/prompt-registry.js";
 import type { JsonlSessionStore, DurableSessionEvent } from "./core/session-store.js";
 import type { SettingsService } from "./core/settings.js";
 import type { ToolRegistry } from "./core/tool-registry.js";
+import type { TraceNotification } from "./core/trace.js";
 
 /** Public metadata version for educational PiHarness plugins. Cordis remains the runtime ABI. */
 export const PIHARNESS_PLUGIN_API_VERSION = 2;
@@ -190,17 +191,22 @@ export interface PluginDiagnostic {
 }
 
 export interface ToolCallRequest {
+	readonly turnId?: string;
 	readonly sessionId: string;
 	readonly toolCallId: string;
 	readonly toolName: string;
 	readonly args: unknown;
 	readonly workspacePath?: string;
+	readonly compareGroupId?: string;
+	readonly comparePolicy?: import("./core/compare-policy.js").ComparePolicy;
 	readonly permissionMode?: AgentPermissionMode;
 }
 
+export type ToolApprovalResponse = true | { readonly decision: "deny" | "cancelled" | "timeout" };
+
 export type ToolGateDecision =
-	| { readonly allow: true }
-	| { readonly allow: false; readonly reason: string; readonly terminate?: boolean };
+	| { readonly allow: true; readonly source?: "user" | "policy" }
+	| { readonly allow: false; readonly reason: string; readonly terminate?: boolean; readonly source?: "user" | "policy" | "cancelled" | "timeout" };
 
 export type ToolGate = (request: ToolCallRequest, signal?: AbortSignal) => ToolGateDecision | Promise<ToolGateDecision>;
 
@@ -217,6 +223,7 @@ declare module "@deepseek-ai/cordis" {
 	}
 
 	interface Events {
+		"piharness/trace"(notification: TraceNotification): void;
 		/** Durable event: it has been fsynced to the local JSONL session log. @mode emit */
 		"piharness/session-event"(event: DurableSessionEvent): void;
 		/** Live Pi Agent lifecycle event. It is intentionally not persisted. @mode emit */
@@ -226,7 +233,7 @@ declare module "@deepseek-ai/cordis" {
 		/** A permission policy requests one interactive decision. First affirmative listener wins. @mode serial */
 		"piharness/tool-approval-request"(
 			request: ToolCallRequest,
-		): boolean | undefined | Promise<boolean | undefined>;
+		): ToolApprovalResponse | undefined | Promise<ToolApprovalResponse | undefined>;
 		/** A Pi run has completed. @mode emit */
 		"piharness/run-completed"(result: AgentRunResult): void;
 	}

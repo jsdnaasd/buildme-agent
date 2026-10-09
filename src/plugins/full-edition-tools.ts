@@ -8,6 +8,8 @@ import { Type, type Static, type TSchema } from "typebox";
 
 import { definePlugin } from "../contracts.js";
 import { documentKind, extractDocxMarkdown, extractPdfPages, htmlToReadableText } from "../core/readable-text.js";
+import { traceAttempt } from "../core/trace-redact.js";
+import { childCapabilities } from "../core/capabilities.js";
 
 const fullTool = <TSchemaValue extends TSchema>(tool: AgentTool<TSchemaValue>): AgentTool<TSchemaValue> => tool;
 
@@ -197,6 +199,19 @@ export const fullEditionTools = definePlugin(
 		],
 	},
 	(ctx) => {
+		const runSubagent = async (prompt: string, toolCallId: string, kind: "delegate_task" | "workflow_run", signal?: AbortSignal, stepIndex?: number) => {
+			const scope = ctx.tools.currentScope();
+			if (!scope?.connection) throw new Error("A model connection is required before delegating work.");
+			return ctx.agents.run(prompt, {
+				connection: scope.connection, workspacePath: scope.workspacePath, permissionMode: scope.permissionMode,
+				edition: "standard", recordRawRequests: scope.recordRawRequests !== false,
+				...(scope.comparePolicy ? { comparePolicy: scope.comparePolicy } : {}),
+				...(scope.compareGroupId ? { compareGroupId: scope.compareGroupId } : {}),
+				...(scope.capabilities === undefined ? {} : { capabilities: childCapabilities(scope.capabilities) }),
+				...(signal ? { signal } : {}),
+				...(scope.trace ? { parentTrace: { collector: scope.trace, kind, toolCallId, ...(stepIndex === undefined ? {} : { stepIndex }) } } : {}),
+			});
+		};
 		const tools = [
 			fullTool({
 				name: "files_search",
@@ -223,7 +238,7 @@ export const fullEditionTools = definePlugin(
 						signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
 						redirect: "follow",
 						headers: {
-							"user-agent": "Mozilla/5.0 (compatible; BuildMe/0.5; +academic assistant)",
+							"user-agent": "Mozilla/5.0 (compatible; BuildMe/0.5)",
 							accept: "text/html,application/xhtml+xml,application/pdf,application/json;q=0.9,*/*;q=0.8",
 						},
 					});
@@ -300,8 +315,12 @@ export const fullEditionTools = definePlugin(
 					"List installed skills (name + description) from the workspace .buildme/skills and ~/.buildme/skills. " +
 					"Call skill_load with a skill's name to get its full instructions before following it.",
 				parameters: skillsParameters,
-				execute: async () => {
+				execute: async (toolCallId) => {
 					const skills = await discoverSkills(workspace(ctx));
+					traceAttempt(() => ctx.tools.currentScope()?.trace?.event({
+						type: "skill.catalog", toolCallId,
+						skills: skills.map(({ name, description }) => ({ name, description, builtin: false })),
+					}));
 					const text = skills.length
 						? skills.map((skill) => `- ${skill.name}${skill.description ? `：${skill.description}` : ""}`).join("\n")
 						: "No skills installed. Add one as .buildme/skills/<name>/SKILL.md in the workspace or ~/.buildme/skills.";
@@ -313,7 +332,7 @@ export const fullEditionTools = definePlugin(
 				label: "Load skill",
 				description: "Load the full SKILL.md instructions of one installed skill, plus the list of its supporting files.",
 				parameters: skillLoadParameters,
-				execute: async (_id, params: Static<typeof skillLoadParameters>) => {
+				execute: async (toolCallId, params: Static<typeof skillLoadParameters>) => {
 					if (!SKILL_NAME.test(params.name)) throw new Error(`Invalid skill name: ${params.name}`);
 					const skills = await discoverSkills(workspace(ctx));
 					const skill = skills.find((candidate) => candidate.name === params.name)
@@ -322,6 +341,9 @@ export const fullEditionTools = definePlugin(
 						throw new Error(`Skill not found: ${params.name}. Available: ${skills.map((candidate) => candidate.name).join(", ") || "none"}`);
 					}
 					const content = await readFile(skill.file, "utf8");
+					traceAttempt(() => ctx.tools.currentScope()?.trace?.event({
+						type: "skill.load", toolCallId, name: skill.name, path: skill.file, chars: content.length, builtin: false,
+					}));
 					let supporting: string[] = [];
 					if (skill.file.endsWith("SKILL.md")) {
 						try {
@@ -348,15 +370,8 @@ export const fullEditionTools = definePlugin(
 				label: "Delegate task",
 				description: "Run one isolated BuildMe sub-agent task and return its final output.",
 				parameters: delegateParameters,
-				execute: async (_id, params: Static<typeof delegateParameters>) => {
-					const scope = ctx.tools.currentScope();
-					if (!scope?.connection) throw new Error("A model connection is required before delegating work.");
-					const result = await ctx.agents.run(params.prompt, {
-						connection: scope.connection,
-						workspacePath: scope.workspacePath,
-						permissionMode: scope.permissionMode,
-						edition: "standard",
-					});
+				execute: async (toolCallId, params: Static<typeof delegateParameters>, signal) => {
+					const result = await runSubagent(params.prompt, toolCallId, "delegate_task", signal);
 					return textResult(result.text, { sessionId: result.sessionId, model: result.model });
 				},
 			}),
@@ -365,18 +380,21 @@ export const fullEditionTools = definePlugin(
 				label: "Run workflow",
 				description: "Run up to six ordered BuildMe sub-agent steps and return every result.",
 				parameters: workflowParameters,
-				execute: async (_id, params: Static<typeof workflowParameters>) => {
-					const scope = ctx.tools.currentScope();
-					if (!scope?.connection) throw new Error("A model connection is required before running a workflow.");
+				execute: async (toolCallId, params: Static<typeof workflowParameters>, signal) => {
+					const trace = ctx.tools.currentScope()?.trace;
 					const results: string[] = [];
 					for (const [index, step] of params.steps.entries()) {
-						const result = await ctx.agents.run(step, {
-							connection: scope.connection,
-							workspacePath: scope.workspacePath,
-							permissionMode: scope.permissionMode,
-							edition: "standard",
-						});
-						results.push(`Step ${index + 1}:\n${result.text}`);
+						signal?.throwIfAborted();
+						const event = { type: "workflow.step" as const, toolCallId, stepIndex: index + 1, title: step };
+						traceAttempt(() => trace?.event({ ...event, status: "start" }));
+						try {
+							const result = await runSubagent(step, toolCallId, "workflow_run", signal, index + 1);
+							results.push(`Step ${index + 1}:\n${result.text}`);
+							traceAttempt(() => trace?.event({ ...event, status: "end" }));
+						} catch (error) {
+							traceAttempt(() => trace?.event({ ...event, status: "error" }));
+							throw error;
+						}
 					}
 					return textResult(results.join("\n\n"), { steps: params.steps.length });
 				},

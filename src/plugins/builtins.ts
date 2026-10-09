@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { CAPABILITIES } from "../core/capabilities.js";
+
 import { readdir } from "node:fs/promises";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -149,12 +152,24 @@ const personalPrompt = definePlugin(
 		inject: ["systemPrompt", "settings"],
 		provides: ["prompt-section:personal"],
 	},
-	(ctx) =>
-		ctx.systemPrompt.register({
-			name: "persona:personal",
-			order: 0,
-			text: ctx.settings.value.agent.systemPrompt,
-		}),
+	(ctx) => {
+		const base = new URL("../../bundles/base/prompts/buildme-agent.md", import.meta.url);
+		const text = ctx.settings.value.agent.systemPrompt;
+		const dispose = [ctx.systemPrompt.register({
+			name: "persona:personal", source: "persona", order: 0, text,
+			...(text === readFileSync(base, "utf8") ? { sourcePath: "bundles/base/prompts/buildme-agent.md" } : {}),
+		})];
+		for (const [index, capability] of CAPABILITIES.entries()) {
+			for (const name of capability.promptSections) {
+				const sourcePath = `bundles/base/prompts/capabilities/${capability.id}.md`;
+				dispose.push(ctx.systemPrompt.register({
+					name, order: 10 + index, source: "capability", capabilityId: capability.id, sourcePath,
+					text: readFileSync(new URL(`../../${sourcePath}`, import.meta.url), "utf8"),
+				}));
+			}
+		}
+		return () => { for (const unregister of dispose.reverse()) unregister(); };
+	}
 );
 
 const workspaceInfoParameters = Type.Object({
