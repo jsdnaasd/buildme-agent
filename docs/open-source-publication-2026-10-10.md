@@ -23,3 +23,11 @@
 - 待发布文件未发现本机 `.env`、数据库或私钥文件；常见凭据格式检查命中测试假值。另扫描 Git 历史 622 个 blob，45 次测试 Token 匹配，无未分类的常见 Token / 私钥格式命中。此扫描不等于对所有秘密格式的保证。
 
 测试不调用真实模型 API。本次没有重跑系统级桌面完整验收，也没有新增 Windows / Linux 桌面实测。私有部署记录、本机配置、聊天和数据库不发布；通用部署代码与配置模板公开。
+
+## 发布结果
+
+- 公开仓库：[jsdnaasd/buildme-agent](https://github.com/jsdnaasd/buildme-agent)。已推送验证版本 `0e8dced`，远端树包含 294 个文件，其中社区工程 106 个文件。
+- 仓库简介、主题标签与主页地址已更新为当前通用 Agent 工作台定位。
+- [中文产品页](https://jsdnaasd.github.io/buildme-agent/) / [English product page](https://jsdnaasd.github.io/buildme-agent/en.html)。
+- [GitHub Pages 部署](https://github.com/jsdnaasd/buildme-agent/actions/runs/38004545130) 成功；两种语言页面、样式和 README 横幅公网返回 HTTP 200，内容与已验证源码一致。
+- 保留现有远端历史，通过合并提交同步，没有强制推送。发布后出现的其他任务打包脚本修改留在本地，未混入本次已验证快照。
