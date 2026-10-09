@@ -212,7 +212,7 @@ export const permissionModePolicy = definePlugin(
 				const approved = await approvalWithAbort(ctx, request, signal);
 				return approved === true
 					? { allow: true, source: "user" }
-					: { allow: false, source: approved === false ? "user" : typeof approved === "object" ? approved.decision : "policy", reason: `Approval was not granted for path: ${boundary.requested}` };
+					: { allow: false, source: approved?.decision === "deny" ? "user" : approved?.decision ?? "policy", reason: `Approval was not granted for path: ${boundary.requested}` };
 			}
 
 			if (isReadOnlyRequest(request)) return { allow: true };
@@ -221,7 +221,7 @@ export const permissionModePolicy = definePlugin(
 			const approved = await approvalWithAbort(ctx, request, signal);
 			return approved === true
 				? { allow: true, source: "user" }
-				: { allow: false, source: approved === false ? "user" : typeof approved === "object" ? approved.decision : "policy", reason: `Approval was not granted for tool: ${request.toolName}` };
+				: { allow: false, source: approved?.decision === "deny" ? "user" : approved?.decision ?? "policy", reason: `Approval was not granted for tool: ${request.toolName}` };
 		}),
 );
 

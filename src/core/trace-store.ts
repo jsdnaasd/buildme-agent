@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { redactTrace } from "./trace-redact.js";
 import { limitTraceRaw } from "./trace-collector.js";
-import { traceSummary, updateTraceUsage, type TraceEngine, type TraceNotification, type TraceTurn, type TraceTurnSummary } from "./trace.js";
+import { refreshTraceUsage, traceSummary, updateTraceUsage, type TraceEngine, type TraceNotification, type TraceTurn, type TraceTurnSummary } from "./trace.js";
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 const ENGINES: readonly TraceEngine[] = ["pi", "dsh"];
@@ -29,6 +29,7 @@ export class TraceStore {
 				turn.events.push(safe.event);
 				if (safe.event.type === "llm.request") limitTraceRaw(turn.events);
 				updateTraceUsage(turn.usage, safe.event);
+				if (safe.event.type === "llm.request" || safe.event.type === "llm.response") refreshTraceUsage(turn);
 				turn.usage.durationMs = Date.now() - Date.parse(turn.startedAt);
 			}
 		} else {
@@ -85,7 +86,10 @@ export class TraceStore {
 			throw error;
 		}
 		const turns = content.split("\n").filter(Boolean).map((line) => redactTrace(JSON.parse(line) as TraceTurn));
-		for (const turn of turns) this.locations.set(turn.id, path);
+		for (const turn of turns) {
+			if (turn.fidelity.usage === "none") refreshTraceUsage(turn);
+			this.locations.set(turn.id, path);
+		}
 		return turns;
 	}
 

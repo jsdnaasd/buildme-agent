@@ -26,6 +26,21 @@ describe("comparison workspaces and adoption", () => {
 		expect(await readFile(join(f.source, "a.txt"), "utf8")).toBe("base\n");
 		expect(await readFile(join(f.workspaces.path(snap.id, "right"), "a.txt"), "utf8")).toBe("base\n");
 	});
+	it("excludes application bundles and ASAR artifacts without excluding source files in release directories", async () => {
+		const f = await fixture();
+		await mkdir(join(f.source, "release", "BuildMe.app", "Contents"), { recursive: true });
+		await writeFile(join(f.source, "release", "BuildMe.app", "Contents", "app.asar"), "packaged application");
+		await writeFile(join(f.source, "release", "app.asar"), "standalone archive");
+		await mkdir(join(f.source, "release", "app.asar.unpacked"));
+		await writeFile(join(f.source, "release", "notes.md"), "release notes");
+		const snap = await f.workspaces.create(f.source);
+		expect(snap.excluded).toEqual(["release/BuildMe.app", "release/app.asar", "release/app.asar.unpacked"]);
+		expect(Object.keys(snap.files).sort()).toEqual(["a.txt", "release/notes.md"]);
+		for (const side of ["left", "right"] as const) expect(await readFile(join(f.workspaces.path(snap.id, side), "release", "notes.md"), "utf8")).toBe("release notes");
+		await writeFile(join(f.workspaces.path(snap.id, "left"), "app.asar"), "generated archive");
+		const preview = await f.workspaces.differences(snap.id, "left");
+		expect((await f.workspaces.adopt(snap.id, "left", preview.token)).conflicts).toEqual(["app.asar"]);
+	});
 	it("enumerates additions, deletions, binary and text changes before adopting", async () => {
 		const f = await fixture(); await writeFile(join(f.source, "delete"), "old"); const snap = await f.workspaces.create(f.source), copy = f.workspaces.path(snap.id, "left");
 		await writeFile(join(copy, "a.txt"), "changed\n"); await writeFile(join(copy, "binary"), Buffer.from([0, 1])); await rm(join(copy, "delete"));

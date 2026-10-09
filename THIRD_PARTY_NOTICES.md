@@ -1,5 +1,13 @@
 # Third-Party Notices
 
+## Pi Agent Core and Pi AI
+
+The Build mode uses `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` from [earendil-works/pi](https://github.com/earendil-works/pi), under the MIT license. The installed packages retain their upstream license files.
+
+## Markdown rendering
+
+Chat answers use [markdown-it](https://github.com/markdown-it/markdown-it) 15.0.2 (MIT). The packaged dependency includes its license at `node_modules/markdown-it/LICENSE`.
+
 This project ports the plugin-composition architecture and selected boot semantics of DeepSeek Harness. The audited revision is an architecture and behavior reference, not a claim that this repository is a full monorepo fork or that every distributed npm tarball is a byte-for-byte build of that revision.
 
 ## DeepSeek Harness

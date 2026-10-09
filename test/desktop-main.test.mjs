@@ -103,7 +103,7 @@ class MockBrowserWindow {
 
   constructor(options) {
     this.options = options;
-    this.webContents = { send: vi.fn() };
+    this.webContents = { send: vi.fn(), setWindowOpenHandler: vi.fn() };
     this.listeners = new Map();
     windows.push(this);
   }
@@ -162,6 +162,14 @@ afterAll(() => {
 });
 
 describe("Desktop main-process state", () => {
+  it("opens web links in the system browser and denies local or executable link targets", () => {
+    const handler = windows[0].webContents.setWindowOpenHandler.mock.calls[0][0];
+    expect(handler({ url: "https://example.com/answer" })).toEqual({ action: "deny" });
+    expect(shell.openExternal).toHaveBeenCalledWith("https://example.com/answer");
+    const calls = shell.openExternal.mock.calls.length;
+    for (const url of ["file:///etc/passwd", "javascript:alert(1)", "custom:launch"]) expect(handler({ url })).toEqual({ action: "deny" });
+    expect(shell.openExternal).toHaveBeenCalledTimes(calls);
+  });
   it("provides clipboard text to the explicit API key paste control", () => {
     expect(ipcHandlers.get("desktop:read-clipboard-text")()).toBe("clipboard-key");
     expect(clipboard.readText).toHaveBeenCalled();
@@ -346,9 +354,11 @@ describe("Desktop main-process state", () => {
     await expect(ipcHandlers.get("desktop:set-permission-mode")(undefined, "root")).rejects.toThrow("权限模式");
   });
 
-  it("bridges a core approval request to the renderer and resolves its response", async () => {
+  it.each([true, false])("bridges a core approval request and preserves the answer %s", async (allow) => {
     await ipcHandlers.get("desktop:set-permission-mode")(undefined, "ask");
+    const requestId = `answer-${allow}`;
     const approval = runtimeListeners.get("piharness/tool-approval-request")({
+      requestId,
       sessionId: "session-1",
       toolCallId: "call-1",
       toolName: "write_file",
@@ -356,8 +366,8 @@ describe("Desktop main-process state", () => {
       workspacePath: canonicalWorkspace,
       permissionMode: "ask",
     });
-    await vi.waitFor(() => expect(windows[0].webContents.send).toHaveBeenCalledWith("desktop:approval", expect.any(Object)));
-    const [, request] = windows[0].webContents.send.mock.calls.find(([channel]) => channel === "desktop:approval");
+    await vi.waitFor(() => expect(windows[0].webContents.send).toHaveBeenCalledWith("desktop:approval", expect.objectContaining({ requestId })));
+    const [, request] = windows[0].webContents.send.mock.calls.find(([channel, payload]) => channel === "desktop:approval" && payload.requestId === requestId);
     expect(request).toMatchObject({
       sessionId: "session-1",
       toolCallId: "call-1",
@@ -365,8 +375,8 @@ describe("Desktop main-process state", () => {
       args: { path: "note.md" },
       permissionMode: "ask",
     });
-    expect(ipcHandlers.get("desktop:approval-response")(undefined, request.requestId, true)).toEqual({ accepted: true });
-    await expect(approval).resolves.toBe(true);
+    expect(ipcHandlers.get("desktop:approval-response")(undefined, request.requestId, allow)).toEqual({ accepted: true });
+    await expect(approval).resolves.toEqual(allow ? true : { decision: "deny" });
     expect(ipcHandlers.get("desktop:approval-response")(undefined, request.requestId, false)).toEqual({ accepted: false });
   });
 

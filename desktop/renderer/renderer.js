@@ -79,18 +79,27 @@ let activeSession;
 let isRunning = false;
 let cancelRequested = false;
 let streamingNode;
+let streamingText = "";
+let streamingThought;
+let responseBoundary = false, reasoningBoundary = false;
 let currentApproval;
 const approvalQueue = [];
 const communityPanel = window.createCommunityPanel(api);
-const xray = window.createXray(api);
+const xray = window.createXray(api, { onExperiment: (turn, usage) => comparisons.openReading(turn, usage) });
 const explanations = window.createExplanations(api);
 let sessionSelection = 0;
 window.createAchievements(api, { onTurn: (turn) => xray.openTurn(turn) });
-const comparisons = window.createComparisons(api, { onTurn: (turn) => xray.openTurn(turn) });
+const comparisons = window.createComparisons(api, {
+  onTurn: (turn, tab) => xray.openTurn(turn, tab),
+  onShow: () => { communityPanel.hide(); $("#xray-close").click(); closeSidebar(); },
+  onClose: () => { $("#xray-close").click(); void xray.setSession(selectedSession, appState.edition); },
+  onState: (state) => { mergeState(state); syncWorkspace(); },
+});
+$("#community-entry").addEventListener("click", () => comparisons.close());
 const capabilities = window.createCapabilities(api, {
   onCompare: (example) => comparisons.open(example),
   onChange: mergeState,
-  onExample: (text) => { elements.prompt.value = text; autoSizePrompt(); elements.prompt.focus(); },
+  onExample: (text) => { comparisons.close(); elements.prompt.value = text; autoSizePrompt(); elements.prompt.focus(); },
 });
 
 function errorText(error) {
@@ -123,14 +132,25 @@ function scrollToLatest() {
   elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
-function appendMessage(role, text, { streaming = false } = {}) {
+function appendMessage(role, text, { streaming = false, reasoning } = {}) {
   const node = document.createElement("article");
   const safeRole = ["user", "assistant", "tool"].includes(role) ? role : "assistant";
   node.className = `message ${safeRole}${streaming ? " streaming" : ""}`;
-  node.textContent = text;
+  if (safeRole === "assistant") window.renderMarkdown(node, text);
+  else node.textContent = text;
+  if (reasoning) elements.messages.append(reasoningNode(reasoning).details);
   elements.messages.append(node);
   scrollToLatest();
   return node;
+}
+
+function reasoningNode(text = "", streaming = false) {
+  const details = document.createElement("details"), summary = document.createElement("summary"), content = document.createElement("div");
+  details.className = "message-reasoning";
+  summary.textContent = streaming ? "正在思考 · 模型返回" : "思考过程 · 模型返回";
+  content.className = "reasoning-content"; content.textContent = text;
+  details.append(summary, content); details.open = streaming;
+  return { details, summary, content };
 }
 
 function createWelcome() {
@@ -154,7 +174,7 @@ function resetWelcome() {
 function displayMessages(items) {
   elements.messages.replaceChildren();
   if (!items.length) return resetWelcome();
-  xray.bindHistory(items.map((item) => ({ ...item, node: appendMessage(item.role, item.text) })));
+  xray.bindHistory(items.map((item) => ({ ...item, node: appendMessage(item.role, item.text, { reasoning: item.reasoning }) })));
 }
 
 function formatDate(value) {
@@ -216,6 +236,7 @@ async function refreshSessions() {
 
 async function selectSession(sessionId, title = "会话") {
   if (isRunning) return;
+  comparisons.close();
   const selection = ++sessionSelection;
   try {
     selectedSession = sessionId;
@@ -232,6 +253,7 @@ async function selectSession(sessionId, title = "会话") {
 }
 
 function startNewChat() {
+  if (comparisons.isOpen()) { void comparisons.newConversation(); return; }
   if (isRunning) return;
   sessionSelection += 1;
   selectedSession = undefined;
@@ -610,21 +632,26 @@ elements.composer.addEventListener("submit", async (event) => {
   elements.prompt.value = "";
   autoSizePrompt();
   streamingNode = appendMessage("assistant", "", { streaming: true });
+  streamingText = "";
+  streamingThought = undefined; responseBoundary = false; reasoningBoundary = false;
   xray.beginRun(streamingNode);
   syncRunning(true);
   try {
     const result = await api.send({ sessionId: requestedSession, prompt: text });
     selectedSession = result.sessionId;
-    if (!streamingNode.textContent) streamingNode.textContent = result.text || "已完成。";
+    if (!streamingText) window.renderMarkdown(streamingNode, result.text || "已完成。");
     streamingNode.classList.remove("streaming");
     elements.chatTitle.textContent = "会话";
-    await refreshSessions();
   } catch (error) {
-    streamingNode.textContent = cancelRequested ? "已取消。" : errorText(error);
+    streamingText += `${streamingText ? "\n\n" : ""}${cancelRequested ? "已取消。" : errorText(error)}`;
+    window.renderMarkdown(streamingNode, streamingText);
     streamingNode.classList.remove("streaming");
     if (!cancelRequested) streamingNode.classList.add("error");
   } finally {
     xray.endRun();
+    if (streamingThought) streamingThought.summary.textContent = cancelRequested ? "思考过程 · 已取消，保留已收到内容" : "思考过程 · 模型返回";
+    streamingThought = undefined;
+    await refreshSessions();
     activeSession = undefined;
     streamingNode = undefined;
     syncRunning(false);
@@ -814,7 +841,19 @@ api.onStream((event) => {
     if (!selectedSession) selectedSession = event.sessionId;
   }
   if (event.sessionId !== activeSession) return;
-  if (event.type === "text" && streamingNode) { streamingNode.textContent += event.delta; scrollToLatest(); }
+  if (event.type === "response-start") { responseBoundary = true; reasoningBoundary = true; }
+  if (event.type === "reasoning" && streamingNode) {
+    if (!streamingThought) { streamingThought = reasoningNode("", true); streamingNode.before(streamingThought.details); }
+    streamingThought.content.textContent += `${reasoningBoundary && streamingThought.content.textContent ? "\n\n" : ""}${event.delta}`;
+    reasoningBoundary = false; setStatus("正在思考"); scrollToLatest();
+  }
+  if (event.type === "text" && streamingNode) {
+    streamingText += `${responseBoundary && streamingText ? "\n\n" : ""}${event.delta}`;
+    window.renderMarkdown(streamingNode, streamingText);
+    responseBoundary = false;
+    if (streamingThought) streamingThought.summary.textContent = "思考过程 · 模型返回";
+    scrollToLatest();
+  }
   if (event.type === "tool") setStatus(`正在使用 ${event.name}`);
 });
 

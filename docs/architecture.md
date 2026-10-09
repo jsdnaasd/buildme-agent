@@ -1,6 +1,16 @@
-# PiHarness 架构：DSH 组合内核 + Pi AgentFactory
+# BuildMe 架构：双引擎与可观察工作台
 
-## 架构定位
+## 桌面端整体结构
+
+- **Build / Pi**：`src/core/pi-agent-runtime.ts` 驱动 Pi Agent Core，Cordis 组合工具、提示词和插件。
+- **DSH**：`desktop/dsh-engine.mjs` 启动官方 DSH 子进程；`src/full/dsh-bridge.ts` 桥接原生 Agent loop、会话和事件。
+- **统一体验**：Electron 主进程与 `desktop/renderer/` 提供单路/双路聊天、能力开关、X 光、账单和成就。
+- **对比**：`desktop/compare.mjs` 和 `src/core/compare-*.ts` 管理两侧会话、副本、差异与采用。默认免工具审批，沙箱与只读约束独立保留。
+- **社区**：`community/` 是单独安装、构建与部署的 Hono / SQLite 网站，桌面通过独立分区接入。
+
+下文详细说明 **Build / Pi 模式的组合内核**，不代表 DSH 全量模式也由 Pi loop 执行。运行命令见 [运行指南](runtime-guide.md)。
+
+## Build / Pi 组合内核
 
 PiHarness 采用 DeepSeek Harness（下文简称 DSH）的插件组合骨架，并把默认 AgentFactory 换成 Pi Agent Core。当前实现以官方仓库提交 [`0d1f50007f9bca3f52b06e1c3074fa14d5fb0720`](https://github.com/deepseek-ai/deepseek-harness/tree/0d1f50007f9bca3f52b06e1c3074fa14d5fb0720) 为审计基线，是面向个人 Agent 的**精简架构移植**；它不是完整 DSH 仓库的镜像，也不宣称与全部 DSH 包保持二进制兼容。
 

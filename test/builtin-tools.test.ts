@@ -116,7 +116,7 @@ describe("permission policy for read-only tools", () => {
 		const asked: string[] = [];
 		ctx.on("piharness/tool-approval-request", (request) => {
 			asked.push(request.toolName);
-			return false;
+			return { decision: "deny" };
 		});
 		const workspace = process.cwd();
 		const request = (toolName: string, args: unknown): ToolCallRequest => ({

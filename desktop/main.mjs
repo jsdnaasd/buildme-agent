@@ -1,5 +1,7 @@
 import { createCompareService } from "./compare.mjs";
 import { createExplanationService } from "./explanations.mjs";
+import { tokenLedger } from "../dist/core/trace-ledger.js";
+import { traceMoment } from "../dist/core/trace.js";
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, cp, mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -385,7 +387,7 @@ function settleApproval(requestId, allow) {
   if (!pending) return false;
   pendingApprovals.delete(requestId);
   clearTimeout(pending.timer);
-  pending.resolve(allow);
+  pending.resolve(allow === false ? { decision: "deny" } : allow);
   sendToWindow("desktop:approval-closed", { requestId });
   return true;
 }
@@ -433,8 +435,19 @@ async function catalogProviderIds() {
   }
 }
 
-/** Start (or reuse) the DSH engine for the active connection. */
-async function ensureDshEngine(config) {
+/**
+ * Start (or reuse) the DSH engine for the active connection. Calls are
+ * serialized: the background start at launch and the first session-list
+ * request otherwise race past the "no engine yet" check and spawn two engines.
+ */
+let dshEngineLock = Promise.resolve();
+function ensureDshEngine(config) {
+  const run = dshEngineLock.then(() => ensureDshEngineNow(config));
+  dshEngineLock = run.catch(() => undefined);
+  return run;
+}
+
+async function ensureDshEngineNow(config) {
   const selected = activeConnection(config);
   if (!selected) throw new Error("请先添加并选择一个模型连接。");
   const route = dshRoute(selected, await catalogProviderIds());
@@ -475,7 +488,14 @@ async function ensureDshEngine(config) {
     });
   }
   const engine = dshEngine;
-  await engine.start();
+  if (!engine.running) {
+    const startedAt = Date.now();
+    console.error("[BuildMe] 正在启动全量版引擎（DSH）…");
+    await engine.start();
+    console.error(`[BuildMe] 全量版引擎已就绪，用时 ${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`);
+  } else {
+    await engine.start();
+  }
   if (!scheduleResumedEngines.has(engine)) {
     scheduleResumedEngines.add(engine);
     void resumeScheduledSessions(engine, route);
@@ -499,9 +519,13 @@ async function resumeScheduledSessions(engine, route) {
 
 /** In full edition the engine starts with the app, so reminders run without a prompt. */
 async function startFullEditionInBackground() {
+  const launchedAt = Date.now();
   try {
     const config = await getConfig();
-    if (config.edition === "full") await ensureDshEngine(config);
+    if (config.edition === "full") {
+      await ensureDshEngine(config);
+      console.error(`[BuildMe] 全量版后台启动完成，距窗口创建 ${((Date.now() - launchedAt) / 1000).toFixed(1)} 秒`);
+    }
   } catch (error) {
     console.error(`[DSH] 全量版后台启动失败：${error instanceof Error ? error.message : String(error)}`);
   }
@@ -612,6 +636,7 @@ function getComparisons() {
 function acceptTrace(notification) {
       try {
         const safe = redactTrace(notification);
+        if (safe.type === "turn-end") safe.turn.moment = traceMoment(safe.turn);
         compareService?.trace(safe);
         void getTraceStore().accept(safe);
         if (safe.type === "turn-end") void recordLearning({ type: "turn", turn: safe.turn });
@@ -631,8 +656,9 @@ function ensureHarness() {
     stopStream = runtime.ctx.on("piharness/agent-event", (sessionId, event) => {
       if (compareService?.ownsSession(sessionId)) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        mainWindow.webContents.send("desktop:stream", { type: "text", sessionId, delta: event.assistantMessageEvent.delta });
+      if (event.type === "message_start" && event.message.role === "assistant") mainWindow.webContents.send("desktop:stream", { type: "response-start", sessionId });
+      if (event.type === "message_update" && ["text_delta", "thinking_delta"].includes(event.assistantMessageEvent.type)) {
+        mainWindow.webContents.send("desktop:stream", { type: event.assistantMessageEvent.type === "thinking_delta" ? "reasoning" : "text", sessionId, delta: event.assistantMessageEvent.delta });
         return;
       }
       if (event.type === "tool_execution_start") {
@@ -700,11 +726,13 @@ async function sessionMessages(sessionId) {
     if (event.type !== "user/message" && event.type !== "assistant/message" && event.type !== "tool/result") return [];
     const message = event.data && typeof event.data === "object" ? event.data.message : undefined;
     const text = messageText(message);
-    if (!text) return [];
+    const reasoning = event.type === "assistant/message" && Array.isArray(message.content) ? message.content.filter(block => block.type === "thinking").map(block => block.thinking).join("\n") : "";
+    if (!text && !reasoning) return [];
     return [{
       id: event.id,
       role: event.type === "user/message" ? "user" : event.type === "assistant/message" ? "assistant" : "tool",
       text,
+      ...(reasoning ? { reasoning } : {}),
       at: event.at,
       turnIndex,
     }];
@@ -932,6 +960,10 @@ function createWindow() {
     },
   });
   community = createCommunity(mainWindow);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (["https:", "http:"].includes(new URL(url).protocol)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
   mainWindow.on("closed", () => {
     community.dispose();
     settleAllApprovals();
@@ -1038,6 +1070,12 @@ ipcMain.handle("desktop:xray-turns", async (_event, sessionId, engine) => {
   return getTraceStore().turns(engine ?? (config.edition === "full" ? "dsh" : "pi"), requireSessionId(sessionId));
 });
 ipcMain.handle("desktop:xray-turn", (_event, turnId) => getTraceStore().turn(requireSessionId(turnId)));
+ipcMain.handle("desktop:xray-ledger", async (_event, turnId) => {
+  const store = getTraceStore();
+  const turn = await store.turn(requireSessionId(turnId));
+  if (!turn) throw new Error("这条 X 光记录已被清理，无法读取用量账单。");
+  return tokenLedger(turn, (id) => store.turn(id));
+});
 ipcMain.handle("desktop:xray-prompt-source", async (_event, turnId, segmentIndex, open) => {
   if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || typeof open !== "boolean") throw new Error("提示词来源参数不正确。");
   const turn = await getTraceStore().turn(requireSessionId(turnId));
@@ -1203,7 +1241,7 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 async function configureNetworkProxy() {
   if (!hasProxyEnv()) {
     try {
-      const proxy = proxyUrlFromPac(await session.defaultSession.resolveProxy("https://api.openalex.org"));
+      const proxy = proxyUrlFromPac(await session.defaultSession.resolveProxy("https://github.com"));
       if (proxy) {
         process.env.HTTPS_PROXY = proxy;
         process.env.HTTP_PROXY = proxy;

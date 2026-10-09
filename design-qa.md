@@ -1,11 +1,12 @@
 # BuildMe Desktop — Design QA
 
+> Historical design record for earlier desktop versions. The current product introduction is in [README.md](README.md); referenced local QA captures are not distributed.
+
 ## Source and viewport
 - Source reference: `artifacts/buildme-reference.png` (2092 × 1444 px)
 - Implementation capture: `artifacts/buildme-v037-implementation.png` (2080 × 1440 px)
 - Normalized side-by-side comparison: `artifacts/buildme-v037-design-qa-comparison.png`
 - Runtime viewport: 1040 × 720 CSS px on a 2× Retina display
-- Product-specific icon reference: `/var/folders/sn/pgxs8x2s0h91_1pzj97597m40000gq/T/codex-clipboard-7a0a34d9-aa14-4792-bd38-c58284c34564.png`
 
 ## Comparison history
 

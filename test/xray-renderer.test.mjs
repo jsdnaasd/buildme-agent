@@ -3,10 +3,13 @@ import vm from "node:vm";
 import { URL } from "node:url";
 import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
+import { tokenLedger } from "../src/core/trace-ledger.ts";
+import { traceMoment } from "../src/core/trace.ts";
 
 const html = await readFile(new URL("../desktop/renderer/index.html", import.meta.url), "utf8");
 const source = await readFile(new URL("../desktop/renderer/xray.js", import.meta.url), "utf8");
 const inspectSource = await readFile(new URL("../desktop/renderer/xray-inspect.js", import.meta.url), "utf8");
+const ledgerSource = await readFile(new URL("../desktop/renderer/xray-ledger.js", import.meta.url), "utf8");
 const knowledgeSource = await readFile(new URL("../desktop/renderer/knowledge.cjs", import.meta.url), "utf8");
 const helpSource = await readFile(new URL("../desktop/renderer/xray-help.js", import.meta.url), "utf8");
 const at = "2026-10-05T00:00:00.000Z";
@@ -26,8 +29,9 @@ function fixture(records = [], prefs = {}) {
   let listener, callback;
   const api = {
     onXray: vi.fn((fn) => { listener = fn; }),
-    xrayTurns: vi.fn(async (sessionId) => records.filter((item) => item.sessionId === sessionId)),
+    xrayTurns: vi.fn(async (sessionId) => records.filter((item) => item.sessionId === sessionId).map((item) => ({ ...item, moment: traceMoment(item) }))),
     xrayTurn: vi.fn(async (id) => globalThis.structuredClone(records.find((item) => item.id === id))),
+    xrayLedger: vi.fn(async (id) => tokenLedger(records.find((item) => item.id === id), async (childId) => records.find((item) => item.id === childId))),
     writeClipboardText: vi.fn(async () => undefined),
     xrayPromptSource: vi.fn(async () => ({ path: "/project/guide.md", readOnly: false })),
   };
@@ -35,16 +39,27 @@ function fixture(records = [], prefs = {}) {
   vm.runInContext(knowledgeSource, context);
   vm.runInContext(helpSource, context);
   vm.runInContext(inspectSource, context);
+  vm.runInContext(ledgerSource, context);
   vm.runInContext(source, context);
-  const xray = window.createXray(api);
+  const onExperiment = vi.fn();
+  const xray = window.createXray(api, { onExperiment });
   const flush = () => { const next = callback; callback = undefined; next?.(); };
   const $ = (selector) => document.querySelector(selector);
   const dispatch = (node, type) => node.dispatchEvent(new window.Event(type));
   const open = () => { $("#xray-toggle").click(); flush(); };
-  return { window, document, api, xray, $, flush, storage, media, dispatch, open, emit: (notification) => listener(globalThis.structuredClone(notification)) };
+  return { window, document, api, xray, $, flush, storage, media, dispatch, open, onExperiment, emit: (notification) => listener(globalThis.structuredClone(notification)) };
 }
 
 describe("X 光 renderer", () => {
+  it("labels partial usage and exposes provider reasoning separately from the answer", async () => {
+    const current = turn("partial", { status: "aborted", fidelity: { usage: "partial" }, usage: { modelCalls: 2, toolCalls: 0, durationMs: 10, inputTokens: 10, outputTokens: 2, reportedCalls: 1, missingCalls: 1 }, events: [
+      { ...event("llm.request", { round: 1, messageCount: 1, toolNames: [] }), context: { total: 2 } },
+      event("llm.response", { round: 1, durationMs: 10, textPreview: "answer", toolCalls: [], reasoning: "模型返回的思考", usage: { input: 10, output: 2 } }),
+    ] });
+    const f = fixture([current]); await f.xray.setSession("session", "standard"); await f.xray.openTurn(current); f.flush();
+    expect(f.$('.xray-metrics').textContent).toContain("已记录 12 tokens（1/2 次，部分用量）");
+    expect(f.$('.xray-timeline')?.textContent || f.$('#xray-timeline').textContent).toContain("模型返回的思考");
+  });
   it("keeps answer stats separate from streamed text and attaches the correct historical turn", async () => {
     const current = turn("two", { turnIndex: 2, usage: { modelCalls: 2, toolCalls: 3, inputTokens: 1200, outputTokens: 20, durationMs: 8200 } });
     const f = fixture([current]);
@@ -388,5 +403,87 @@ describe("Large and empty inspection records", () => {
     showTab(f, "context");
     expect(f.$("#xray-context").textContent).toContain("上限未知");
     expect(f.$("#xray-context").innerHTML).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+describe("发现卡与 Token 账单", () => {
+  it("exposes the ledger through the preload actually loaded by Electron", async () => {
+    const main = await readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8");
+    const preload = main.match(/preload: join\(here, "([^"]+)"\)/)[1];
+    const source = await readFile(new URL(`../desktop/${preload}`, import.meta.url), "utf8");
+    const invoke = vi.fn();
+    let api;
+    vm.runInNewContext(source, { require: () => ({ contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } }, ipcRenderer: { invoke } }) });
+    api.xrayLedger("real-turn");
+    expect(invoke).toHaveBeenCalledWith("desktop:xray-ledger", "real-turn");
+  });
+
+  it("attaches only one discovery card to the final answer when restoring a multi-call turn", async () => {
+    const compact = event("context.compacted", { tokensBefore: 100, coveredMessages: 3, summaryPreview: "kept" });
+    const f = fixture([turn("history", { events: [compact] })]);
+    await f.xray.setSession("session", "standard");
+    const nodes = Array.from({ length: 3 }, () => f.document.createElement("article"));
+    f.$("#messages").append(...nodes);
+    f.xray.bindHistory(nodes.map((node) => ({ role: "assistant", node, turnIndex: 1 })));
+    f.flush();
+    expect(f.document.querySelectorAll(".xray-moment")).toHaveLength(1);
+    expect(f.document.querySelectorAll(".xray-stats")).toHaveLength(1);
+    expect(nodes[2].nextSibling.className).toBe("xray-stats");
+    expect(nodes[0].nextSibling).toBe(nodes[1]);
+  });
+
+  it("shows one local card after completion, opens the exact event, and persists dismissal", async () => {
+    const compact = event("context.compacted", { tokensBefore: 100, coveredMessages: 3, summaryPreview: "kept" });
+    const trace = turn("moment", { events: [compact], moment: { title: "你的对话在这里被压缩了", description: "看看摘要", eventIds: [compact.id] } });
+    const f = fixture([trace]); await f.xray.setSession("session", "standard");
+    const answer = f.document.createElement("article"); f.$("#messages").append(answer);
+    f.xray.bindHistory([{ role: "assistant", node: answer, turnIndex: 1 }]); f.flush();
+    expect(f.document.querySelectorAll(".xray-moment")).toHaveLength(1);
+    expect(f.api.xrayLedger).not.toHaveBeenCalled();
+    f.$(".xray-moment-open").click(); await Promise.resolve(); await Promise.resolve(); f.flush();
+    expect(f.$(".xray-event-focused").dataset.eventId).toBe(compact.id);
+    expect(f.$("#xray-tab-timeline").getAttribute("aria-selected")).toBe("true");
+    f.$(".xray-moment-dismiss").click(); f.flush();
+    expect(f.$(".xray-moment")).toBeNull();
+    expect(f.storage.get("buildme.xray.dismissed.moment")).toBe("true");
+  });
+
+  it("does not show a card while running or when the preference is off", async () => {
+    const f = fixture([], { "buildme.xray.moments": "false" }); await f.xray.setSession(undefined, "standard");
+    const answer = f.document.createElement("article"); f.$("#messages").append(answer); f.xray.beginRun(answer);
+    const trace = turn("live", { status: "running", events: [event("skill.load", { name: "guide", chars: 5, builtin: false })] });
+    f.emit({ type: "turn-start", turn: trace }); f.flush();
+    expect(f.$(".xray-answer-insights").hidden).toBe(true);
+    trace.status = "done"; trace.moment = traceMoment(trace);
+    f.emit({ type: "turn-end", turn: trace }); f.flush();
+    expect(f.$(".xray-moment")).toBeNull();
+    f.$("#show-xray-moments").checked = true; f.dispatch(f.$("#show-xray-moments"), "change"); f.flush();
+    expect(f.$(".xray-moment-open").textContent).toContain("guide");
+    f.$("#show-xray-moments").checked = false; f.dispatch(f.$("#show-xray-moments"), "change"); f.flush();
+    expect(f.$(".xray-moment")).toBeNull();
+  });
+
+  it("renders reported caches separately, marks historical gaps, and opens an experiment without running one", async () => {
+    const trace = turn("bill", { fidelity: { usage: "exact", subagents: true }, events: [request(1), event("llm.response", { round: 1, durationMs: 10, textPreview: "done", toolCalls: [], usage: { input: 20, output: 3, cacheRead: 50, cacheWrite: 7 } })] });
+    const f = fixture([trace]); await f.xray.setSession("session", "standard"); f.open(); showTab(f, "ledger");
+    await vi.waitFor(() => expect(f.$(".ledger-call")).not.toBeNull());
+    expect(f.$(".ledger-call summary").textContent).toContain("实测 77");
+    expect([...f.$(".ledger-section").querySelectorAll("dd")].map((item) => item.textContent)).toEqual(["20", "3", "50", "7"]);
+    expect(f.$("#xray-ledger").textContent).toContain("历史没有逐条占用数据");
+    expect(f.onExperiment).not.toHaveBeenCalled();
+    f.$(".ledger-experiment button").click();
+    expect(f.onExperiment).toHaveBeenCalledWith(expect.objectContaining({ id: "bill" }), { inputTokens: 20, outputTokens: 3, cacheReadTokens: 50, cacheWriteTokens: 7 });
+    expect(f.$("#xray-panel").hidden).toBe(true);
+  });
+
+  it("shows ledger failures explicitly and refreshes on demand", async () => {
+    const f = fixture([turn()]); await f.xray.setSession("session", "standard");
+    f.api.xrayLedger.mockRejectedValueOnce(new Error("read failed"));
+    f.open(); showTab(f, "ledger");
+    await vi.waitFor(() => expect(f.$(".ledger-status").textContent).toContain("read failed"));
+    f.$("#xray-ledger > button").click();
+    await vi.waitFor(() => expect(f.$(".ledger-section")).not.toBeNull());
+    expect(f.api.xrayLedger).toHaveBeenCalledTimes(2);
+    expect(f.$("#xray-ledger").textContent).not.toMatch(/NaN|Infinity|undefined/);
   });
 });

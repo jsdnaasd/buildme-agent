@@ -238,7 +238,7 @@ export const fullEditionTools = definePlugin(
 						signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
 						redirect: "follow",
 						headers: {
-							"user-agent": "Mozilla/5.0 (compatible; BuildMe/0.5; +academic assistant)",
+							"user-agent": "Mozilla/5.0 (compatible; BuildMe/0.5)",
 							accept: "text/html,application/xhtml+xml,application/pdf,application/json;q=0.9,*/*;q=0.8",
 						},
 					});

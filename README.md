@@ -1,263 +1,161 @@
-# BuildMe / PiHarness
+<div align="center">
 
-个人 Agent 桌面与 CLI：**Pi Agent Core 是唯一 Agent driver，DeepSeek Harness（DSH）的 Cordis/Loader/Include/Profile/Bundle 架构负责组合。**
+<img src="docs/site/cover.svg" alt="BuildMe — Build to understand. Understand to build." width="100%" />
 
-当前版本已经从早期的“DSH-inspired 自制宿主”迁移为一套可运行的 **DSH 架构精简移植**：使用 DSH 官方发布的 scoped Cordis 包、真实 Loader Entry ABI、Include 导出的 patch 算法、bundle/profile/overlay 分层，以及 `ctx.agents.setFactory()` 形式的可替换 AgentFactory。上游架构与启动语义的核对基线固定为 `deepseek-ai/deepseek-harness@0d1f50007f9bca3f52b06e1c3074fa14d5fb0720`。
+**把 AI 的能力，变成你的能力。**
 
-## 两个版本
+一个能完成真实任务，也能让你看见内部过程的开源 Agent 工作台。
 
-BuildMe 是面向学生论文写作的学术助手，桌面端有两种模式，界面相同，顶部按钮切换：
+**简体中文** · [English](README.en.md)
 
-| | **Build 模式（轻量）** | **全量版（DSH 引擎）** |
+[项目介绍页](https://jsdnaasd.github.io/buildme-agent/) · [快速开始](#快速开始) · [产品理念](docs/product-brief.md) · [架构](docs/architecture.md) · [参与贡献](CONTRIBUTING.md)
+
+![MIT](https://img.shields.io/badge/license-MIT-cc6945?style=flat-square)
+![Electron](https://img.shields.io/badge/desktop-Electron-252925?style=flat-square)
+![TypeScript](https://img.shields.io/badge/code-TypeScript-4879a0?style=flat-square)
+![Two engines](https://img.shields.io/badge/engines-Pi_%2B_DSH-252925?style=flat-square)
+
+</div>
+
+---
+
+## 为什么做 BuildMe
+
+**我们相信，使用 Agent 的过程，也应该成为掌握 Agent 的过程。**
+
+从一个真实想法出发：改进项目、编写代码、整理资料、制作作品。Agent 帮你推进任务，BuildMe 帮你理解它如何选择工具、组织上下文、调用模型，以及消耗了哪些 Token。
+
+你可以打开一项能力，观察下一轮发生的变化；让两个 Agent 同时面对相同任务，比较它们的路径与产物；把发现带到下一次实践里。
+
+**动手创造 → 看见过程 → 调整能力 → 对照验证 → 分享发现。**
+
+面向创作者、开发者，以及希望通过实践理解 Agent 的学生和老师。学习从自己的任务开始，没有固定考题，也不按答案给人排名。
+
+## 有什么特别
+
+| | 你能做什么 |
+|---|---|
+| **X 光模式** | 展开真实回合，查看模型调用、工具参数与结果、提示词组成、上下文和子任务。静态说明与按需深入讲解帮助你读懂事件。 |
+| **我的 Agent** | 用九项开关配置能力。工具、提示词和运行时使用同一份回合配置；修改在下一轮生效。 |
+| **双路连续聊天** | 一个输入框提问，Pi 与 DSH 同时流式回答，分别保留上下文。持续追问、停止、恢复历史，再比较文件变化和执行过程。 |
+| **Token 账单** | 查看模型报告的输入、输出与缓存用量，追踪工具输出和重复上下文。部分数据、估算和未提供数据分别标明。 |
+| **对照实验** | 比较两种引擎、两条模型连接，或“直接读取 / 先搜索再读取”策略。两侧从相同工作区基线建立独立副本。 |
+| **探索足迹** | 30 项本地确定性成就与发现卡，由真实事件触发。导出学习记录不包含聊天正文、工具参数或 Trace 内容。 |
+| **社区与作品墙** | 独立开源社区，包含帖子、讨论、作品、搜索、审核及对比/成就分享。可自行部署并连接桌面端。 |
+
+### 两个引擎，一个工作台
+
+| | Pi · 你的 Agent | DSH · 完全体 |
 |---|---|---|
-| Agent 执行 | Pi Agent Core + BuildMe 自己的 Cordis 插件 | DeepSeek Harness 原生 agent loop（`dsh-base`） |
-| 文档 | `document_read`：PDF 按页、Word、HTML | 同一个 `document_read`，以 DSH 工具形式挂载 |
-| 联网 | 可读网页正文（`web_fetch`） | `web_search` + `web_fetch` |
-| 子 Agent / 工作流 | `delegate_task` / `workflow_run` | `subagent`、`subagent_fork`、`workflow`、`ralph` |
-| 定时任务 | — | `schedule_create` / `list` / `delete`；到期在同一会话继续并弹系统通知 |
-| 命令 | Pi `bash`，按权限模式审批 | 沙箱 bash，越权时向 BuildMe 界面申请审批 |
-| 其他 | 技能、计划、待办、上下文压缩 | 技能、待办、长期目标、后台任务、上下文压缩 |
-| 模型 | Pi 目录全部 provider 与中转站 | DeepSeek 原生适配器；其他 provider 与中转站走 `dsh-llm-pi-ai` |
+| 执行内核 | Pi Agent Core | DeepSeek Harness 原生 Agent loop |
+| 主要用途 | 调整能力、观察机制、做受控实验 | 体验完整 harness 的执行方式 |
+| 扩展方式 | Cordis 插件、提示词、Skill 与能力注册表 | 官方 DSH 插件与 BuildMe bridge |
+| 共用体验 | 聊天、工作区、模型连接、X 光、账单 | 聊天、工作区、模型连接、X 光、账单 |
 
-两种模式共用同一份学术提示词（`bundles/base/prompts/buildme-academic.md`），全量版把其中的工具说明替换为 `buildme-tools-dsh.md`。
+九项可开关能力：**读文档、搜索工作区、读网页、任务清单、计划、Skill、上下文压缩、子 Agent、工作流**。基础读写、编辑、命令和工作区信息始终保留；工作流依赖子 Agent，子任务不会无限继续委派。
 
-### 全量版如何工作
+模型由你选择：DeepSeek、其他受支持的提供商、兼容接口或本地模型服务。可用模型、工具能力和推理内容取决于所选服务。BuildMe 只展示模型实际返回的思考内容。
 
-```text
-BuildMe 界面（renderer） ⇄ IPC ⇄ Electron 主进程 desktop/main.mjs
-                                     │ desktop/dsh-engine.mjs
-                                     │ 以官方 dsh 启动器拉起子进程：
-                                     │ dsh --profile buildme --patch <BuildMe overlay>
-                                     ▼
-            DSH 进程（@deepseek-ai/dsh-base 全部核心能力）
-              + dsh-schedule / dsh-time-context
-              + dist/full/dsh-document-tool.js（document_read）
-              + dist/full/dsh-bridge.js（stdio JSON-RPC 桥）
-```
+## 先体验这条路径
 
-- 桥接插件提供 `session/run`、`session/cancel`、`session/list`、`session/messages`、`tools/list`、`schedule/resume-pending`，并把流式文本、工具调用、会话状态推给主进程；DSH 的每个审批请求都通过 `approval/request` 交给 BuildMe 弹窗决定。
-- 全量版使用 BuildMe 自己的 `DSH_HOME`（应用数据目录下的 `dsh/`），不读写 `~/.dsh`；遥测默认关闭。
-- 密钥只通过子进程环境变量传入（`BUILDME_ACTIVE_API_KEY` / `DEEPSEEK_API_KEY`），不写入任何配置文件。
-- 权限映射：`ask` → DSH `read-only`，`workspace-write` → `workspace-write`，`bypass` → `danger-full-access`。
-- 定时提醒只在会话在线时触发：全量版随应用启动，并自动恢复有待办提醒的会话，逾期提醒立即补发。macOS 关闭窗口后应用仍在后台运行，提醒照常触发；完全退出 BuildMe 后，提醒会在下次启动时补发。
-- `web_search` 使用 DeepSeek 搜索接口，需要 DeepSeek Key；使用其他模型时如未配置 DeepSeek Key，网页搜索不可用，`web_fetch` 不受影响。
-
-## 现在与 DSH 对齐的部分
-
-- `@deepseek-ai/cordis@4.0.2`
-- `@deepseek-ai/cordis-plugin-loader@1.0.3`
-- `@deepseek-ai/cordis-plugin-include@1.0.7`
-- `@deepseek-ai/cordis-plugin-group@1.0.2`
-- `node-addon-require-builtin@0.1.6`（Loader 的 Node internal-module bridge）
-- Loader row ABI：`id / name / config / group / disabled / inject / intercept / isolate`
-- Profile 端从空数组依次应用 base bundle、profile patch、home patch、CLI overlay
-- 直接调用 Include 导出的原生按 ID patch 算法；`config` 是整字段替换，不做深合并
-- 随包只读根 Include 只挂载空配置载体；兼容适配层把已经合成的行逐条交给 Loader 生命周期
-- 依赖由 Cordis `inject` 与 service availability 驱动；配置行顺序没有启动语义
-- DSH 核心服务缝：`ctx.sessions`、`ctx.systemPrompt`、`ctx.tools`、`ctx.llm`、`ctx.agents`、`ctx.agentLoop`
-- `ctx.agents` 持有稳定 AgentRegistry；Pi loop 只以 AgentFactory 插件身份注册
-- Loader Fiber 的 pending/active/failed 审计：DSH 全局 startup-critical ID fail-loud，其余 inactive row 发 warning 并保留已激活兄弟
-- 许可证归属随源码与 Desktop 包发布，UI 不使用上游 Logo 或品牌素材
-
-这些版本号与固定 commit 的 `vendor/*/package.json` 一致，但 npm registry 中的同版本 Cordis/Loader/Include tarball 与该 commit 的工作树源码并非逐文件相同，尤其 Loader 的初次多行挂载和 settled Fiber rejection 行为不同。本项目明确保留官方 npm runtime，并用小型的逐行挂载与结算审计适配层复现固定 commit 的 startup-critical/optional 边界；这里不宣称运行期 tarball 是该 commit 的逐字构建产物。
-
-## 组合图
-
-```text
-profile/package.json: dsh.profile.bundles
-                + profile/cordis.patch.yml
-                + $PIHARNESS_HOME/cordis.patch.yml
-                + --patch overlay
-                            ↓
-       Include.applyEntryPatches(empty, profile layers)
-                            ↓
-       packaged empty root Include + per-row mount adapter
-                            ↓
-        @deepseek-ai/cordis-plugin-loader Entry tree
-                            ↓
-  ┌────────────── DSH-shaped service seams ──────────────┐
-  │ sessions  systemPrompt  tools  llm  agents          │
-  └──────────────────────────┬────────────────────────────┘
-                             │ ctx.agents.setFactory(...)
-                    agent-loop row → Pi Agent Core
-                             │
-                    JSONL facts + live events
-```
-
-`bundles/base/cordis.patch.yml` 是个人版 base bundle。它保留 required row ID `agent-loop`，但从源头把该行指向 `cordis:piharness-agent-loop-pi`，因此不会同时启动 DSH 默认 loop 与 Pi loop。
-
-## Pi Agent 实际提供了什么
-
-这里不是只借用了 Pi 的名字。当前执行链直接使用 `@earendil-works/pi-agent-core` / `pi-ai` 的：
-
-- `Agent` 多轮状态机、流式事件、消息与 tool-result 协议；
-- tool schema 参数校验、parallel/sequential 执行、`beforeToolCall` 授权闸门、abort 生命周期与 thinking level；
-- Pi 原生 `read`、`write`、`edit`、`bash` 工具，通过 Cordis 工具插件接入所选工作区；
-- `Models.streamSimple`、provider auth、请求级 API Key/Base URL 与 sessionId 透传；
-- 当前安装版本随包的 **40 个 provider factory、1,354 个模型条目**，包括 OpenAI、Anthropic、Google/Vertex、Amazon Bedrock、DeepSeek、OpenRouter、xAI、Groq、Mistral、Moonshot、MiniMax、Qwen、Z.AI、NVIDIA、Together、Fireworks、Hugging Face 等；
-- OpenAI Chat Completions / Responses 兼容 adapter，因此任意兼容中转站、本地服务和自定义模型 ID 都能作为连接加入。
-
-DSH/Cordis 层负责另一半：profile/bundle/patch 组合、插件生命周期、`ctx.*` 服务缝、持久 session、prompt/tool/policy registry 与可替换 AgentFactory。也就是说，**Pi 负责 Agent 执行，DSH 架构负责 Everything is a Plugin 的装配**。
+1. **带来一个项目。** 选择本地工作区，配置模型连接，提出真实任务。
+2. **展开一次回答。** 点击 X 光或 Token 账单，看模型调用了什么、读入了什么。
+3. **改变一个条件。** 打开 Skill、子 Agent 或压缩，观察下一轮的变化。
+4. **同时问两路。** 连续追问，对照回答、工具轨迹和文件 diff，再决定采用哪些改动。
 
 ## 快速开始
 
-要求：Node.js `>=22.19`、pnpm。
+需要 **Node.js 22.19+** 和 **pnpm**。若同时运行社区，使用 Node.js 22.x。
 
 ```bash
+git clone https://github.com/jsdnaasd/buildme-agent.git
+cd buildme-agent
 pnpm install
-pnpm build
-node dist/cli.js init
-export DEEPSEEK_API_KEY='YOUR_KEY' # 也可使用其他 provider 自己的环境变量
-node dist/cli.js plugins doctor
-node dist/cli.js run "查看当前工作区，并告诉我有哪些顶层文件"
-```
-
-开发模式：`pnpm dev run "你的问题"`。
-
-新 profile 采用 DSH 的目录形式：
-
-```text
-.piharness/
-├── package.json          # dsh.profile.bundles
-└── cordis.patch.yml      # 个人配置层
-```
-
-空 Include leaf 随应用发布在 `bundles/base/cordis.empty.yml`；启动和插件诊断不会在 profile 中生成或改写额外 carrier 文件。
-
-以前的 `.piharness/profile.json` 仍会在读取时转换成相同 Loader tree，便于现有本地会话继续使用。
-
-## Profile 与 patch
-
-`package.json` 声明有序 bundle：
-
-```json
-{
-  "name": "my-agent-profile",
-  "private": true,
-  "dependencies": {},
-  "dsh": {
-    "profile": {
-      "bundles": ["@my-agent/base"],
-      "patchReload": "startup"
-    }
-  }
-}
-```
-
-`cordis.patch.yml` 通过稳定 row ID 改配置。和 DSH 一样，下面的 `config` 会整体替换 settings 配置，因此要写完整对象：
-
-```yaml
-- id: settings
-  config:
-    name: BuildMe
-    home: .
-    agent:
-      provider: deepseek
-      model: deepseek-v4-flash
-      apiKeyEnv: DEEPSEEK_API_KEY
-      thinkingLevel: off
-      toolExecution: parallel
-      # 默认预设会加载随 BuildMe 发布的 Claude Code Opus 5 提示词。
-      # 这里填入任意字符串即可为本 Profile 覆盖该预设。
-      systemPrompt: '@buildme/claude-code-opus-5'
-```
-
-临时覆盖：`node dist/cli.js plugins list --patch ./experiment.patch.yml`。
-
-## Everything is a Plugin
-
-默认 base 中每项能力都是 row：
-
-- `settings` → `ctx.settings`
-- `session` → `ctx.sessions`
-- `system-prompt` → `ctx.systemPrompt`
-- `tools` → `ctx.tools`
-- `llm` → `ctx.llm`
-- `agent` → `ctx.agents`
-- `llm-pi-ai-builtins` → Pi AI 全量 provider/model catalog
-- `persona` → prompt section
-- `workspace-info` → tool
-- `workspace-tools` → Pi 原生 read/write/edit/bash
-- `permission-mode` → ask/workspace-write/bypass policy
-- `agent-loop` → `ctx.agentLoop` + Pi AgentFactory
-
-`llm-pi-ai-deepseek` 与 `allow-list` 仍是可单独插入的兼容插件，但不再是 base bundle 的默认行。
-
-中转站也可作为普通 Cordis row 固化；密钥只引用环境变量，不写进 profile：
-
-```yaml
-- insert:
-    - id: my-relay
-      name: cordis:piharness-llm-openai-compatible
-      config:
-        id: my-relay
-        name: 我的中转站
-        baseUrl: https://relay.example.com/v1
-        apiKeyEnv: MY_RELAY_API_KEY
-        models:
-          - id: vendor/model-name
-```
-
-开发试验可用 DSH patch 禁用原 row，再插入新 row；调用方仍只访问 `ctx.agents`：
-
-```yaml
-- id: agent-loop
-  disabled: true
-- insert:
-    - id: my-agent-loop
-      name: ./plugins/my-agent-loop.mjs
-```
-
-这里的 `my-agent-loop` 属于 optional row。用于稳定发行的 bundle stack 应在组合源头只产出一个 canonical `agent-loop` row，并直接让它指向选定的 AgentFactory；这样才能继续命中 DSH 的 startup-critical fail-loud 规则。本仓库的 `@my-agent/base` 正是这种做法。
-
-外部插件由 profile 自己的 `dependencies` 管理，并以标准 Cordis default export 与 `plugin.inject` 声明服务依赖。参见 `docs/plugin-authoring.md` 与 `examples/`。
-
-## Desktop（BuildMe）
-
-```bash
 pnpm desktop
 ```
 
-打包：
+在「模型与偏好」添加自己的 API Key、模型和连接地址，然后选择工作区。API 费用由所选服务商收取，仓库不提供共享密钥。
+
+<details>
+<summary><strong>CLI 与桌面打包</strong></summary>
 
 ```bash
-pnpm desktop:package
-open "release/BuildMe-darwin-arm64/BuildMe.app"
+pnpm build
+node dist/cli.js init
+node dist/cli.js plugins doctor
+# 先在本机配置所选提供商要求的环境变量
+node dist/cli.js run "查看当前工作区，说明项目结构"
 
-# Windows x64 便携版（解压后运行 BuildMe.exe）
+# macOS 默认目标为 arm64
+pnpm desktop:package
+# Windows x64 打包目标；不代表已完成 Windows 实机验收
 pnpm desktop:package:win
 ```
 
-Windows 交付文件位于 `release/BuildMe-<版本>-win32-x64.zip`，同目录的 `.sha256` 文件用于校验分发包完整性。
+详细配置见 [运行指南](docs/runtime-guide.md)。
 
-Desktop 采用双栏任务界面和底部 Composer，支持亮色/深色/跟随系统、原生文件夹工作区、Pi catalog 模型选择、多连接及中转站、会话、流式回答、取消和真实工具审批。权限有三档：`ask`（写入/命令询问）、`workspace-write`（工作区文件自动，命令仍询问）、`bypass`（完全不审批且不做工作区路径限制）。API Key 通过 Electron `safeStorage` 加密落盘，并按请求传给模型，不注入 shell 环境。名称、图标与界面只显示“BuildMe”。
+</details>
 
-侧边栏底部的“插件市场”只保留 Pi 社区第三方扩展，提供按 npm 月下载量聚合的热门榜、GitHub Star 排序的社区仓库入口和 r/PiCodingAgent 近期热门讨论。Pi 包源支持 `npm:`、`git:` 和 HTTPS 仓库链接。OpenAI Apps 目录已移除，因为它不是 BuildMe 当前 Pi/Cordis 运行时可直接导入的插件源。
+<details>
+<summary><strong>自托管社区</strong></summary>
 
-Claude 连接在“模型与偏好”中选择 `Anthropic`：常规 `sk-ant-api…` API Key 与 Claude Code 的 `sk-ant-oat…` OAuth Token 都可直接填入；后者由 Pi 自动走 Bearer/OAuth 与 Claude Code 请求格式。OpenAI 格式中转站选择 `OpenAI 兼容 / 中转站`，填写服务商给出的完整 `/v1` Base URL、模型 ID 与 API Key；提供 Anthropic Messages 协议的中转站则选择 `Anthropic` 并覆盖 Base URL。
-
-服务商目录用于选型，不限制手动输入新模型 ID：对已知 provider，手动模型仍保留该 provider 的原生请求协议，而不是降级成通用 OpenAI 格式。
-
-## 与完整 DSH 发行版的边界
-
-这里移植的是 DSH 的**组合架构、选定启动语义与核心替换缝**，并保留已经工作的 Pi/JSONL 纵向切片；它既不是完整 monorepo fork，也不是固定 commit 全部 vendored package 的逐字重建。完整上游还包含 canonical Session v3、session persistence/projection 分层、agent-scoped context、工具 waterfall、LLM middleware、HMR、插件安装事务、独立 Desktop host 子进程和完整 Web UI 插件图。具体映射与 npm artifact 边界见 `docs/dsh-upstream.md`。
-
-## 验证
+社区独立安装，要求 Node.js 22.19–22.x。从仓库根目录进入：
 
 ```bash
+cd community
+pnpm install
+cp .env.example .env
+# 按 community/README.md 生成并填写本机 SESSION_SECRET
+pnpm build
+pnpm dev
+```
+
+社区使用 Hono、SQLite 和本地文件/OSS 存储。账号、GitHub OAuth、域名与生产部署需自行配置；源码公开不代表已有可用的公共社区服务。见 [社区说明](community/README.md) 与 [部署指南](community/deploy/README.md)。
+
+</details>
+
+## 数据与执行边界
+
+- **数据默认保存在本机。** 使用远程模型时，任务需要的内容会发送给你选择的服务商；本地工作台不意味着所有推理离线完成。
+- **双路默认免工具审批。** 两侧在独立副本中工作；强制只读与命令隔离仍由执行层约束。采用到原文件前展示变更并检查冲突。
+- **比较实际表现。** 同模型下可以比较两种 harness，但随机输出差异不能全部归因于 harness。
+- **记录忠于实际采集。** 缺失用量不补零，部分统计不冒充完整总量，模型提供的推理与最终回答分开显示。
+- **额外调用由你触发。** 查看本地 Trace 和成就不调用模型；深入讲解、差异总结与再次对比会使用你选定的模型连接。
+
+## 源码地图
+
+| 目录 | 内容 |
+|---|---|
+| [`desktop/`](desktop/) | Electron 主进程、IPC、聊天和可视化界面 |
+| [`src/core/`](src/core/) | Pi 运行时、Trace、能力、成就、对比和工作区 |
+| [`src/full/`](src/full/) | DSH bridge、事件采集与工具接入 |
+| [`src/plugins/`](src/plugins/) · [`bundles/`](bundles/) | Cordis 插件、系统提示词与能力提示词 |
+| [`community/`](community/) | 完整社区服务、前端、数据迁移、测试与部署工具 |
+| [`test/`](test/) · [`scripts/`](scripts/) | 单元测试、隔离 Electron 验收和打包 |
+| [`docs/`](docs/) | 产品、架构、需求、实现与验收记录 |
+
+## 当前状态与贡献
+
+BuildMe 正在持续开发。macOS arm64 有实际桌面验收记录；Windows 有打包目标，Windows / Linux 的桌面实机验证仍待完成。DSH 子任务跨 worker 的部分统计存在采集边界，详见 [保真度记录](docs/xray-dsh-fidelity.md)。
+
+欢迎提交问题、复现步骤、交互改进、插件或文档。先阅读 [贡献指南](CONTRIBUTING.md)。[功能构想](docs/feature-ideas.md) 单独记录未来设想，不代表当前已交付。
+
+```bash
+pnpm test
 pnpm typecheck
 pnpm test:typecheck
 pnpm lint
-pnpm test
 pnpm build
-pnpm desktop:package
 ```
 
-## 许可与品牌
+## 开源与致谢
 
-DeepSeek Harness 主体采用 MIT。复制和改造的架构/启动语义保留 `Copyright (c) 2026 DeepSeek` 与完整许可文本：
+**桌面端、CLI、Agent 运行时、插件、提示词、社区服务、测试与项目文档均在本仓库公开，BuildMe 自有代码采用 [MIT](LICENSE) 许可证。** 本机密钥、用户聊天、数据库、依赖安装目录和私有部署配置不属于源码发布内容。
 
-- `legal/DEEPSEEK_HARNESS_LICENSE`
-- `THIRD_PARTY_NOTICES.md`
+感谢 [Pi](https://github.com/earendil-works/pi)、[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 及依赖生态。BuildMe 是独立项目，保留上游版权与许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
-产品名为“BuildMe”，未使用 DeepSeek Harness 官方 Logo、名称或 UI 品牌插件。
+<div align="center">
+
+**Build to understand. Understand to build.**
+
+</div>

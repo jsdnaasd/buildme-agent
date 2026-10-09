@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld("personalAgent", {
   onCompare: (callback) => { const listener = (_event, data) => callback(data); ipcRenderer.on("desktop:compare", listener); return () => ipcRenderer.removeListener("desktop:compare", listener); },
   xrayTurns: (sessionId, engine) => ipcRenderer.invoke("desktop:xray-turns", sessionId, engine),
   xrayTurn: (turnId) => ipcRenderer.invoke("desktop:xray-turn", turnId),
+  xrayLedger: (turnId) => ipcRenderer.invoke("desktop:xray-ledger", turnId),
   xrayPromptSource: (turnId, segmentIndex, open) => ipcRenderer.invoke("desktop:xray-prompt-source", turnId, segmentIndex, open),
   setRecordRawRequests: (enabled) => ipcRenderer.invoke("desktop:set-record-raw-requests", enabled),
   onXray: (listener) => {

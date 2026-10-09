@@ -1,10 +1,10 @@
 # BuildMe 社区进度
 
-更新：2026-10-05。需求基准：prd-community.md v1.1。C0–C2 已交付；本轮继续 C3–C8。
+更新：2026-10-10。需求基准：prd-community.md v1.1。C0–C8 已交付。
 
 ## 当前状态
 
-C0–C8 功能与运维工具已交付，本地自动化验收完成。真实GitHub、OSS与正式HTTPS配置后的验收仍待负责人执行。本轮未推送、未执行线上部署。
+C0–C8 功能与运维工具已交付，本地自动化验收完成。2026-10-10 已部署至阿里云杭州 ECS，设置 `community.buildtostudy.xyz`，Linux 构建、迁移、systemd、服务器内 HTTPS 和数据库健康验证通过。公网被阿里云 ICP 备案检查拦截，待域名所有者完成备案或接入；GitHub、OSS与公开访问尚未验收。详见 [实际部署记录](buildtostudy-deployment.md)。未推送代码。
 
 ## 基线
 

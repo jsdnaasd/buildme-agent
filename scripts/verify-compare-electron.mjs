@@ -28,12 +28,19 @@ const server = createServer(async (req, res) => {
       delta = { tool_calls: [{ index: 0, id: "fixture-command", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: `printf safe > inside.txt; if printf escaped > '${join(root, "workspace/input.txt")}'; then echo ESCAPED; else echo CONFINED; fi`, ...(pi ? {} : { description: "Verify local comparison sandbox file boundary" }) }) } }] }; reason = "tool_calls";
     } else { delta = { content: "Local sandbox command complete" }; reason = "stop"; }
   }
+  if (reason === "stop" && tools.length && JSON.stringify(request.messages.at(index)).includes("COMPARE_TWO")) {
+    delta = { content: "我会接着这一侧的历史继续回答。\n\n" + "已读取独立工作区中的文件，并保留本次修改。你可以继续追问，我会沿用同一会话；确认采用前，原工作区保持不变。\n\n".repeat(10) };
+  }
+  if (reason === "stop" && body.includes("COMPARE_MARKDOWN")) {
+    delta = { content: '## 装了什么\n\n**示例技能** → `~/.claude/skills/example/`\n\n| 项 | 值 |\n|---|---|\n| 仓库 | [查看仓库](https://example.com/project) |\n| 文件 | `SKILL.md` + `LICENSE` |\n| 依赖 | **无** |\n\n## 使用说明\n\n1. 开启新会话。\n2. 继续提问，保留上下文。\n\n> 这是本地验收内容，不会安装任何技能。\n\n```sh\n# 代码中的井号保持原样\nprintf "**literal**"\n```' };
+  }
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   const send = (value) => res.write(`data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture-model", ...value })}\n\n`);
-  if (explanation || body.includes("COMPARE_CANCEL")) {
+  if (tools.length) send({ choices: [{ index: 0, delta: { role: "assistant", reasoning_content: "先核对本地测试文件，再依据工具返回作答。" }, finish_reason: null }] });
+  if (explanation || body.includes("COMPARE_CANCEL") || body.includes("COMPARE_PARTIAL") && results.length > 0) {
     const text = summary ? "1. 左侧与右侧各有 2 次工具调用，工具集合均包含 read、write。\n2. 两侧都有文件修改记录，是否采用需要核对真实工作区。\n3. 该次模型对比只说明本任务的记录，不能推断普遍优劣。" : "这一步记录了工具与模型之间的执行过程。".repeat(24);
     send({ choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }] });
-    const timer = setTimeout(() => { send({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }); res.end("data: [DONE]\n\n"); }, mode === "slow" || body.includes("COMPARE_CANCEL") ? 60000 : 150);
+    const timer = setTimeout(() => { send({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }); res.end("data: [DONE]\n\n"); }, mode === "slow" || body.includes("COMPARE_CANCEL") || body.includes("COMPARE_PARTIAL") ? 60000 : 150);
     res.once("close", () => clearTimeout(timer)); return;
   }
   send({ choices: [{ index: 0, delta: { role: "assistant", ...delta }, finish_reason: null }] });
@@ -47,7 +54,7 @@ try {
   const connection = { provider: "openai-compatible", model: "fixture-model", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: "fixture-key-not-real" };
   await writeFile(join(root, "user-data/desktop-settings.json"), JSON.stringify({ connections: [{ ...connection, id: "left", name: "Local A" }, { ...connection, model: "fixture-model-b", id: "right", name: "Local B" }], activeConnectionId: "left", workspacePath: join(root, "workspace"), permissionMode: "workspace-write", edition: "standard", capabilities: ["core"] }));
   await writeFile(join(root, "endpoint.json"), JSON.stringify({ url: connection.baseUrl }));
-  for (const phase of ["write", "read", "m5", "explain-restart"]) {
+  for (const phase of (process.argv.length > 2 ? process.argv.slice(2) : ["write", "read", "m5", "explain-restart", "reasoning", "markdown"])) {
     const env = { ...process.env, HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", all_proxy: "", http_proxy: "", https_proxy: "", NO_PROXY: "127.0.0.1,localhost", DEEPSEEK_API_KEY: "" }; delete env.ELECTRON_RUN_AS_NODE;
     const child = spawn(electron, [join(project, "scripts/fixtures/compare-electron.cjs"), phase, root, project], { cwd: project, env, stdio: ["ignore", "pipe", "pipe"] });
     let output = ""; child.stdout.on("data", (data) => { output += data; }); child.stderr.on("data", (data) => { output += data; });

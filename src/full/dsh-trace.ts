@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { GenerateOptions, StreamChunk, TokenUsage } from "@deepseek-ai/dsh-llm";
-import { estimateTokens, updateTraceUsage, type TraceEvent, type TraceEventInput, type TraceNotification, type TraceTurn } from "../core/trace.js";
+import { estimateTokens, refreshTraceUsage, updateTraceUsage, type TraceEvent, type TraceEventInput, type TraceNotification, type TraceTurn } from "../core/trace.js";
 import { limitTraceRaw, TRACE_PREVIEW_BYTES, TRACE_RESULT_BYTES } from "../core/trace-collector.js";
 import { redactTrace, traceAttempt, truncateUtf8 } from "../core/trace-redact.js";
+import { traceContextItems } from "../core/trace-context.js";
 
 interface SessionEvent { type: string; seq: number; time: number; data: Record<string, unknown> }
 interface Session {
@@ -11,7 +12,7 @@ interface Session {
 }
 interface RunMetadata { provider: string; model: string; text: string; permissionMode?: string; compareGroupId?: string; recordRawRequests?: boolean }
 interface RecordState {
-	turn: TraceTurn; session: Session; seen: Set<string>; round: number; missingUsage: boolean; responses: number;
+	turn: TraceTurn; session: Session; seen: Set<string>; round: number;
 	toolStarts: Map<string, number>; approved: Set<string>; linked: boolean; metadata: RunMetadata;
 	pendingPrune?: number;
 }
@@ -60,7 +61,7 @@ export class DshTraceRecorder {
 				fidelity: { promptSegments: false, rawRequest: metadata.recordRawRequests !== false, usage: "none", subagents: true, compaction: true, approvals: true },
 				promptSegments: [], events: [], usage: { modelCalls: 0, toolCalls: 0, durationMs: 0 },
 			};
-			const record: RecordState = { turn, session, metadata, seen: new Set(), round: 0, missingUsage: false, responses: 0, toolStarts: new Map(), approved: new Set(), linked: false };
+			const record: RecordState = { turn, session, metadata, seen: new Set(), round: 0, toolStarts: new Map(), approved: new Set(), linked: false };
 			this.records.set(session.id, record); this.send({ type: "turn-start", turn }); return;
 		}
 		const record = this.records.get(session.id);
@@ -86,8 +87,7 @@ export class DshTraceRecorder {
 			record.turn.status = reason?.kind === "aborted" ? "aborted" : reason?.kind === "completed" || reason?.kind === "max-tokens" ? "done" : "error";
 			if (record.turn.status === "error") record.turn.errorMessage = reason?.error?.message ?? `DSH 回合结束：${reason?.kind ?? "unknown"}`;
 			record.turn.endedAt = new Date(event.time).toISOString(); record.turn.usage.durationMs = event.time - Date.parse(record.turn.startedAt);
-			if (record.missingUsage || record.responses === 0) { delete record.turn.usage.inputTokens; delete record.turn.usage.outputTokens; delete record.turn.usage.cacheReadTokens; delete record.turn.usage.cacheWriteTokens; }
-			Object.assign(record.turn.fidelity, { usage: record.missingUsage || record.responses === 0 ? "none" : "exact" });
+			refreshTraceUsage(record.turn);
 			this.link(record); this.send({ type: "turn-end", turn: record.turn });
 			const parent = session.header.parentSession ? this.records.get(session.header.parentSession) : undefined;
 			if (parent && parent.turn.id === record.turn.parentTurnId) this.add(parent, `child:${record.turn.id}:end`, { type: "subagent.end", childTurnId: record.turn.id, durationMs: record.turn.usage.durationMs, resultPreview: truncateUtf8(record.turn.finalAnswer ?? "", TRACE_PREVIEW_BYTES), isError: record.turn.status !== "done" });
@@ -116,14 +116,18 @@ export class DshTraceRecorder {
 				else parts.toolResults += tokens;
 			}
 			const request = { ...options }; delete request.signal;
-			this.add(record, `${record.turn.id}:request:${round}`, { type: "llm.request", round, messageCount: options.messages.length, toolNames: (options.tools ?? []).map((tool) => tool.name), context: { ...parts, total: Object.values(parts).reduce((sum, count) => sum + count, 0) }, ...(record.metadata.recordRawRequests !== false ? { raw: { format: "dsh-generate-options", request } } : {}) });
+			const contextItems = traceContextItems(options.messages.map((message) => message.source.kind === "tool"
+				? { kind: "tool", content: message.content, toolCallId: message.source.callId }
+				: { kind: message.role, content: message.content }));
+			this.add(record, `${record.turn.id}:request:${round}`, { type: "llm.request", round, messageCount: options.messages.length, toolNames: (options.tools ?? []).map((tool) => tool.name), context: { ...parts, total: Object.values(parts).reduce((sum, count) => sum + count, 0) }, contextItems, ...(record.metadata.recordRawRequests !== false ? { raw: { format: "dsh-generate-options", request } } : {}) });
 		});
-		let usage: TokenUsage | undefined, stopReason: string | undefined, text = "";
+		let usage: TokenUsage | undefined, stopReason: string | undefined, text = "", reasoning = "", reasoningTruncated = false;
 		const toolCalls: { toolCallId: string; name: string }[] = [];
 		try {
 			for await (const chunk of next()) {
 				traceAttempt(() => {
 					if (chunk.type === "text-delta") text += chunk.text;
+					else if (chunk.type === "reasoning-delta") { const joined = reasoning + chunk.text; reasoning = truncateUtf8(joined, TRACE_RESULT_BYTES); reasoningTruncated ||= reasoning !== joined; }
 					else if (chunk.type === "usage") usage = chunk.usage;
 					else if (chunk.type === "finish") stopReason = chunk.reason.kind;
 					else if (chunk.type === "block-end" && chunk.block.type === "tool-call") toolCalls.push({ toolCallId: chunk.block.id, name: chunk.block.name });
@@ -132,8 +136,7 @@ export class DshTraceRecorder {
 			}
 		} finally {
 			traceAttempt(() => {
-				record.responses++; if (!usage) record.missingUsage = true;
-				this.add(record, `${record.turn.id}:response:${round}`, { type: "llm.response", round, durationMs: Date.now() - started, ...(stopReason ? { stopReason } : {}), textPreview: truncateUtf8(text, TRACE_PREVIEW_BYTES), toolCalls, ...(usage ? { usage: { input: usage.inputTokens, output: usage.outputTokens, ...(usage.cacheReadTokens === undefined ? {} : { cacheRead: usage.cacheReadTokens }), ...(usage.cacheWriteTokens === undefined ? {} : { cacheWrite: usage.cacheWriteTokens }) } } : {}) });
+				this.add(record, `${record.turn.id}:response:${round}`, { type: "llm.response", round, durationMs: Date.now() - started, ...(stopReason ? { stopReason } : {}), ...(reasoning ? { reasoning, reasoningTruncated } : {}), textPreview: truncateUtf8(text, TRACE_PREVIEW_BYTES), toolCalls, ...(usage ? { usage: { input: usage.inputTokens, output: usage.outputTokens, ...(usage.cacheReadTokens === undefined ? {} : { cacheRead: usage.cacheReadTokens }), ...(usage.cacheWriteTokens === undefined ? {} : { cacheWrite: usage.cacheWriteTokens }) } } : {}) });
 			});
 		}
 	}

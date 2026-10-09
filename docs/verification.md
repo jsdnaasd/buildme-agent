@@ -2,6 +2,8 @@
 
 Date: 2026-09-16
 
+> Historical release evidence. Current features and platform limits are described in [README.md](../README.md) and [X-ray progress](xray-progress.md).
+
 ## Verified outcome
 
 - Pi Agent Core is the active `AgentFactory`; all 12 rows in the installed legacy Desktop profile activate through the Cordis Loader tree.

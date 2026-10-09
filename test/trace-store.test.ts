@@ -21,6 +21,22 @@ function turn(index = 1, sessionId = "session"): TraceTurn {
 }
 
 describe("X 光脱敏与容量", () => {
+	it("recovers partial usage from old cancelled history without rewriting the original file", async () => {
+		const workspace = await tempWorkspace();
+		try {
+			const root = join(workspace.dir, "traces"), original = turn();
+			Object.assign(original.fidelity, { usage: "none" }); original.status = "aborted";
+			original.usage = { modelCalls: 2, toolCalls: 0, durationMs: 1000 };
+			original.events.push({ type: "llm.response", id: "reply", at: original.startedAt, round: 1, durationMs: 10, textPreview: "partial", toolCalls: [], usage: { input: 10, output: 2, cacheRead: 4 } }, { ...original.events[0]!, id: "next", round: 2 } as TraceTurn["events"][number]);
+			await mkdir(join(root, "pi"), { recursive: true });
+			const file = join(root, "pi/session.jsonl"), content = JSON.stringify(original) + "\n";
+			await writeFile(file, content);
+			const store = new TraceStore(root);
+			expect((await store.turn(original.id))!).toMatchObject({ fidelity: { usage: "partial" }, usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 4, reportedCalls: 1, missingCalls: 1 } });
+			expect((await store.turns("pi", "session"))[0]!.fidelity.usage).toBe("partial");
+			expect(await readFile(file, "utf8")).toBe(content);
+		} finally { await workspace.cleanup(); }
+	});
 	it("redacts known credentials, sensitive fields, header values and key-shaped strings without losing token metrics", () => {
 		const source = {
 			Authorization: "Bearer header-secret", "x-api-key": "another-key", nested: [{ password: 12345, access_token: "access-value", SECRET: "secret-value" }],

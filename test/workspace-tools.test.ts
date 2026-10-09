@@ -161,7 +161,7 @@ export default plugin;
 		const requests: string[] = [];
 		const off = ctx.on("piharness/tool-approval-request", async (request) => {
 			requests.push(request.toolName);
-			return request.toolName === "write";
+			return request.toolName === "write" ? true : { decision: "deny" };
 		});
 		try {
 			const approved = await ctx.tools.authorize({
@@ -189,7 +189,7 @@ export default plugin;
 				permissionMode: "bypass",
 			});
 			expect(approved).toEqual({ allow: true, source: "user" });
-			expect(denied).toMatchObject({ allow: false });
+			expect(denied).toMatchObject({ allow: false, source: "user" });
 			expect(bypassed).toEqual({ allow: true });
 			expect(requests).toEqual(["write", "bash"]);
 		} finally {

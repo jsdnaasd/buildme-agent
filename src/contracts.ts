@@ -202,7 +202,7 @@ export interface ToolCallRequest {
 	readonly permissionMode?: AgentPermissionMode;
 }
 
-export type ToolApprovalResponse = boolean | { readonly decision: "cancelled" | "timeout" };
+export type ToolApprovalResponse = true | { readonly decision: "deny" | "cancelled" | "timeout" };
 
 export type ToolGateDecision =
 	| { readonly allow: true; readonly source?: "user" | "policy" }

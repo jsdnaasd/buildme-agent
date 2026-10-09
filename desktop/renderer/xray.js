@@ -17,13 +17,16 @@
   }
   function tokens(turn) {
     if (turn.fidelity.usage === "none") return "tokens 未提供";
-    return `${turn.fidelity.usage === "estimated" ? "约 " : ""}${number(turn.usage.inputTokens + turn.usage.outputTokens)} tokens`;
+    if (turn.usage.inputTokens === undefined || turn.usage.outputTokens === undefined) return "tokens 未提供";
+    const total = number(turn.usage.inputTokens + turn.usage.outputTokens + (turn.usage.cacheReadTokens ?? 0) + (turn.usage.cacheWriteTokens ?? 0));
+    if (turn.fidelity.usage === "partial") return `已记录 ${total} tokens（${turn.usage.reportedCalls}/${turn.usage.reportedCalls + turn.usage.missingCalls} 次，部分用量）`;
+    return `${turn.fidelity.usage === "estimated" ? "约 " : ""}${total} tokens`;
   }
   function stats(turn) {
     return `${turn.usage.modelCalls} 次模型调用 · ${turn.usage.toolCalls} 个工具 · ${tokens(turn)} · ${seconds(turn.usage.durationMs)}`;
   }
 
-  window.createXray = (api) => {
+  window.createXray = (api, { onExperiment } = {}) => {
     const $ = (selector) => document.querySelector(selector);
     const panel = $("#xray-panel"), timeline = $("#xray-timeline"), overview = $("#xray-overview");
     const toggle = $("#xray-toggle"), select = $("#xray-turn"), followButton = $("#xray-follow");
@@ -35,8 +38,23 @@
     let width = Number(localStorage.getItem("buildme.xray.width") || 420);
     let selectionVersion = 0;
     let activeTab = "timeline", inspectViews = {};
+    let focusTarget;
+    let showMoments = localStorage.getItem("buildme.xray.moments") !== "false";
     const tabButtons = [...$("#xray-tabs").querySelectorAll("[data-xray-tab]")];
-    const tabNames = { timeline: "执行时间线", prompt: "系统提示词", context: "上下文用量", raw: "原始请求" };
+    const tabNames = { timeline: "执行时间线", prompt: "系统提示词", context: "上下文用量", ledger: "Token 用量账单", raw: "原始请求" };
+
+    async function focusEvents(turnId, eventIds) {
+      follow = false;
+      if (!turns.has(turnId)) {
+        const scope = generation;
+        const turn = await api.xrayTurn(turnId);
+        if (scope !== generation) return;
+        if (!turn) { loadError = "这条记录已被清理。"; setOpen(true); schedule(); return; }
+        turns.set(turn.id, turn);
+      }
+      focusTarget = { turnId, eventIds };
+      await choose(turnId); updateSelect(); setTab("timeline"); setOpen(true);
+    }
 
     function setTab(name) {
       if (name === "prompt" || name === "raw") window.recordLearningEvent?.("xray-tab", { tab: name, turnId: selectedId });
@@ -98,6 +116,8 @@
         option.value = turn.id;
         return option;
       });
+      const child = turns.get(selectedId);
+      if (child?.parentTurnId && !summaries.has(child.id)) { const option = element("option", "", `子 Agent · ${child.model.id}`); option.value = child.id; options.push(option); }
       if (!options.length) options.push(element("option", "", "暂无回合记录"));
       select.replaceChildren(...options);
       select.disabled = !items.length;
@@ -147,6 +167,24 @@
       entry.bar.dataset.turnId = turn.id;
       entry.bar.textContent = `◎ ${stats(turn)}${turn.status === "done" ? "" : ` · ${STATUS[turn.status]}`}  ›`;
       entry.bar.setAttribute("aria-label", `查看第 ${turn.turnIndex} 回合 X 光：${stats(turn)}`);
+      if (!entry.insights) {
+        entry.insights = element("div", "xray-answer-insights");
+        const ledger = element("button", "xray-ledger-link", "Token 去哪儿了？"); ledger.type = "button";
+        ledger.onclick = () => { follow = false; void choose(entry.turnId); updateSelect(); setTab("ledger"); setOpen(true); };
+        entry.insights.append(ledger); entry.bar.after(entry.insights);
+      }
+      entry.insights.hidden = turn.status === "running";
+      if (entry.moment && (!showMoments || localStorage.getItem(`buildme.xray.dismissed.${turn.id}`) === "true")) { entry.moment.remove(); entry.moment = undefined; }
+      if (!entry.moment && showMoments && turn.moment && localStorage.getItem(`buildme.xray.dismissed.${turn.id}`) !== "true") {
+        const card = element("section", "xray-moment");
+        card.append(element("span", "xray-moment-label", "本轮值得看的一幕"));
+        const dismiss = element("button", "xray-moment-dismiss", "收起"); dismiss.type = "button"; dismiss.setAttribute("aria-label", "收起本回合的发现卡");
+        dismiss.onclick = () => { localStorage.setItem(`buildme.xray.dismissed.${turn.id}`, "true"); card.remove(); entry.moment = undefined; };
+        const inspect = element("button", "xray-moment-open", turn.moment.title); inspect.type = "button";
+        inspect.onclick = () => { void focusEvents(turn.id, turn.moment.eventIds).catch((error) => { inspect.textContent = `读取失败：${error.message}`; }); };
+        card.append(dismiss, inspect, element("p", "", turn.moment.description));
+        entry.insights.append(card); entry.moment = card;
+      }
     }
     function updateBars() {
       const byIndex = new Map(ordered().map((turn) => [turn.turnIndex, turn]));
@@ -242,6 +280,10 @@
               record.response = detail("模型回复预览", response.textPreview || (response.toolCalls.length ? "模型选择了工具调用。" : "没有文本内容。"));
               record.node.append(record.response);
             }
+            if (response?.reasoning && !record.reasoning) {
+              record.reasoning = detail(response.reasoningTruncated ? "思考过程 · 模型返回（已截断）" : "思考过程 · 模型返回", response.reasoning);
+              record.node.append(record.reasoning);
+            }
           } else if (event.type === "subagent.start") {
             if (!record) {
               record = row(event, "◇ 子 Agent", "把一个独立任务交给另一个 Agent；展开查看它自己的执行过程。", "child");
@@ -323,7 +365,7 @@
         timeline.scrollTop = 0;
         view = undefined;
         inspectViews = {};
-        for (const name of ["prompt", "context", "raw"]) { $(`#xray-${name}`).replaceChildren(); $(`#xray-${name}`).scrollTop = 0; }
+        for (const name of ["prompt", "context", "ledger", "raw"]) { $(`#xray-${name}`).replaceChildren(); $(`#xray-${name}`).scrollTop = 0; }
         viewId = selectedId;
       }
       overview.replaceChildren();
@@ -336,7 +378,7 @@
       const badge = element("span", `xray-status xray-status-${turn.status}`, STATUS[turn.status]);
       const model = element("span", "xray-model-name", `${turn.model.provider} / ${turn.model.id}`);
       const values = element("div", "xray-metrics");
-      for (const [value, label] of [[turn.usage.modelCalls, "模型调用"], [turn.usage.toolCalls, "工具调用"], [tokens(turn), "累计输入 + 输出"], [seconds(turn.usage.durationMs), "回合耗时"]]) {
+      for (const [value, label] of [[turn.usage.modelCalls, "模型调用"], [turn.usage.toolCalls, "工具调用"], [tokens(turn), "用量（含已报告缓存）"], [seconds(turn.usage.durationMs), "回合耗时"]]) {
         const metric = element("div", "");
         metric.append(element("strong", "", String(value)), element("span", "", label));
         values.append(metric);
@@ -351,7 +393,11 @@
             const previous = ordered().find((item) => item.turnIndex === turn.turnIndex - 1);
             window.XrayInspect.prompt(host, turn, { api, previous: async () => previous ? turns.get(previous.id) || await api.xrayTurn(previous.id) : undefined });
             inspectViews.prompt = true;
-          } else inspectViews[activeTab] = window.XrayInspect[activeTab](host, api);
+          } else if (activeTab === "ledger") inspectViews.ledger = window.XrayLedger(host, api, {
+            onEvent: (id, eventIds) => { void focusEvents(id, eventIds).catch((error) => { loadError = error.message; schedule(); }); },
+            onExperiment: (source, usage) => { setOpen(false); onExperiment(source, usage); },
+          });
+          else inspectViews[activeTab] = window.XrayInspect[activeTab](host, api);
         }
         if (activeTab !== "prompt") inspectViews[activeTab].refresh(turn);
         return;
@@ -360,6 +406,12 @@
       const atBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 60;
       view.refresh(turn);
       if (atBottom && turn.status === "running") timeline.scrollTop = timeline.scrollHeight;
+      if (focusTarget?.turnId === turn.id) {
+        for (const row of timeline.querySelectorAll(".xray-event")) row.classList.toggle("xray-event-focused", focusTarget.eventIds.includes(row.dataset.eventId));
+        const target = [...timeline.querySelectorAll(".xray-event")].find((row) => row.dataset.eventId === focusTarget.eventIds[0]);
+        if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }); target.scrollIntoView({ block: "center" }); }
+        focusTarget = undefined;
+      }
     }
 
     api.onXray((notification) => {
@@ -373,6 +425,14 @@
         if (event.type === "llm.response" && event.usage) {
           turn.usage.inputTokens = (turn.usage.inputTokens ?? 0) + event.usage.input;
           turn.usage.outputTokens = (turn.usage.outputTokens ?? 0) + event.usage.output;
+          if (event.usage.cacheRead !== undefined) turn.usage.cacheReadTokens = (turn.usage.cacheReadTokens ?? 0) + event.usage.cacheRead;
+          if (event.usage.cacheWrite !== undefined) turn.usage.cacheWriteTokens = (turn.usage.cacheWriteTokens ?? 0) + event.usage.cacheWrite;
+        }
+        if (event.type === "llm.request" || event.type === "llm.response") {
+          const requests = new Set(turn.events.filter(e => e.type === "llm.request").map(e => e.round));
+          const reported = new Set(turn.events.filter(e => e.type === "llm.response" && e.usage && requests.has(e.round)).map(e => e.round));
+          turn.usage.reportedCalls = reported.size; turn.usage.missingCalls = requests.size - reported.size;
+          turn.fidelity.usage = reported.size === 0 ? "none" : reported.size < requests.size ? "partial" : "exact";
         }
         turn.usage.durationMs = Math.max(0, new Date(event.at) - new Date(turn.startedAt));
       } else {
@@ -403,9 +463,9 @@
       const scope = ++generation;
       selectionVersion += 1;
       summaries.clear(); turns.clear(); entries = []; pendingAnswer = undefined;
-      selectedId = undefined; viewId = undefined; view = undefined; inspectViews = {}; follow = true; loadError = "";
+      selectedId = undefined; viewId = undefined; view = undefined; inspectViews = {}; follow = true; loadError = ""; focusTarget = undefined;
       timeline.replaceChildren();
-      for (const name of ["prompt", "context", "raw"]) $(`#xray-${name}`).replaceChildren();
+      for (const name of ["prompt", "context", "ledger", "raw"]) $(`#xray-${name}`).replaceChildren();
       updateSelect(); schedule();
       if (!id) return;
       try {
@@ -419,6 +479,8 @@
       }
     }
     toggle.addEventListener("click", () => setOpen(!open));
+    $("#show-xray-moments").checked = showMoments;
+    $("#show-xray-moments").addEventListener("change", (event) => { showMoments = event.target.checked; localStorage.setItem("buildme.xray.moments", String(showMoments)); schedule(); });
     $("#xray-close").addEventListener("click", () => setOpen(false));
     $("#xray-backdrop").addEventListener("click", () => setOpen(false));
     $("#xray-beginner").addEventListener("click", () => setMode(false));
@@ -459,12 +521,15 @@
     setOpen(localStorage.getItem("buildme.xray.open") === "true", false);
     return {
       setSession,
-      async openTurn(turn) {
+      async openTurn(turn, tab = "timeline") {
         await setSession(turn.sessionId, turn.engine === "dsh" ? "full" : "standard");
         summaries.set(turn.id, turn); turns.set(turn.id, turn); follow = false;
-        await choose(turn.id); updateSelect(); setTab("timeline"); setOpen(true);
+        await choose(turn.id); updateSelect(); setTab(tab); setOpen(true);
       },
-      bindHistory(items) { entries = items.filter((item) => item.role === "assistant"); schedule(); },
+      bindHistory(items) {
+        entries = [...new Map(items.filter((item) => item.role === "assistant").map((item) => [item.turnId ?? item.turnIndex, item])).values()];
+        schedule();
+      },
       beginRun(node) { pendingAnswer = { node }; },
       endRun() { pendingAnswer = undefined; },
     };

@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Context as ModelContext } from "@earendil-works/pi-ai";
 
-import { estimateTokens, updateTraceUsage, type ContextBreakdown, type TraceEvent, type TraceEventInput, type TraceNotification, type TraceTurn } from "./trace.js";
+import { estimateTokens, refreshTraceUsage, updateTraceUsage, type ContextBreakdown, type TraceEvent, type TraceEventInput, type TraceNotification, type TraceTurn } from "./trace.js";
 import { redactTrace, traceAttempt, truncateUtf8 } from "./trace-redact.js";
 import { capabilityForTool } from "./capabilities.js";
+import { traceContextItems } from "./trace-context.js";
 
 export const TRACE_RAW_BYTES = 2 * 1024 * 1024;
 export const TRACE_PREVIEW_BYTES = 4 * 1024;
@@ -107,15 +108,23 @@ export class TraceCollector {
 			traceAttempt(() => this.event({
 				type: "llm.request", round, messageCount: context.messages.length,
 				toolNames: (context.tools ?? []).map((tool) => tool.name), context: contextBreakdown(context, limit),
+				contextItems: traceContextItems(context.messages.map((message) => message.role === "toolResult"
+					? { kind: "tool", content: message.content, toolCallId: message.toolCallId, toolName: message.toolName }
+					: { kind: message.role, content: message.content })),
 				...(this.recordRaw ? { raw: { format: "pi-context", model: { provider: model.provider, id: model.id }, context, options } } : {}),
 			}));
 			const observe = (responseStream: Awaited<ReturnType<StreamFn>>) => {
 				traceAttempt(() => {
 					void responseStream.result().then((response) => {
+						const missingUsage = ["aborted", "error"].includes(response.stopReason)
+							&& response.usage.input + response.usage.output + response.usage.cacheRead + response.usage.cacheWrite === 0;
+						const thinking = response.content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("\n");
+						const reasoning = truncateUtf8(redactTrace(thinking, this.secrets), TRACE_RESULT_BYTES);
 						traceAttempt(() => this.event({
 							type: "llm.response", round, durationMs: Math.round(performance.now() - started),
+							...(reasoning ? { reasoning, reasoningTruncated: Buffer.byteLength(thinking) > TRACE_RESULT_BYTES } : {}),
 							stopReason: response.stopReason,
-							usage: { input: response.usage.input, output: response.usage.output, cacheRead: response.usage.cacheRead },
+							...(missingUsage ? {} : { usage: { input: response.usage.input, output: response.usage.output, cacheRead: response.usage.cacheRead, cacheWrite: response.usage.cacheWrite } }),
 							textPreview: truncateUtf8(redactTrace(response.content.filter((block) => block.type === "text").map((block) => block.text).join(""), this.secrets), TRACE_PREVIEW_BYTES),
 							toolCalls: response.content.filter((block) => block.type === "toolCall").map((block) => ({ toolCallId: block.id, name: block.name })),
 						}));
@@ -161,6 +170,7 @@ export class TraceCollector {
 		this.turn.status = status;
 		this.turn.endedAt = new Date().toISOString();
 		this.turn.usage.durationMs = Date.parse(this.turn.endedAt) - Date.parse(this.turn.startedAt);
+		refreshTraceUsage(this.turn);
 		if (errorMessage !== undefined) this.turn.errorMessage = errorMessage;
 		if (finalAnswer !== undefined) this.turn.finalAnswer = finalAnswer;
 		const turn = redactTrace(this.turn, this.secrets);

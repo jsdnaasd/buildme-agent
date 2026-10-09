@@ -2,6 +2,8 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 
 import { createApp } from "../src/bootstrap.js";
 import type { PiharnessProfile } from "../src/contracts.js";
@@ -115,6 +117,10 @@ describe("Pi X 光执行链", () => {
 			expect(turn.usage.inputTokens).toBe(responses.reduce((sum, e) => sum + e.usage!.input, 0));
 			expect(turn.usage.outputTokens).toBe(responses.reduce((sum, e) => sum + e.usage!.output, 0));
 			expect(turn.usage.cacheReadTokens).toBe(responses.reduce((sum, e) => sum + e.usage!.cacheRead!, 0));
+			expect(turn.usage.cacheWriteTokens).toBe(responses.reduce((sum, e) => sum + e.usage!.cacheWrite!, 0));
+			expect(requests.every((request) => request.contextItems !== undefined)).toBe(true);
+			expect(requests[1]!.contextItems!.some((item) => item.kind === "tool")).toBe(true);
+			expect(requests[1]!.contextItems!.every((item) => !Object.hasOwn(item, "content"))).toBe(true);
 			expect(requests[0]!.raw).toMatchObject({ context: { systemPrompt: turn.promptSegments.map((p) => p.text).join("\n\n") } });
 			expect(requests[0]!.context.total).toBeGreaterThan(0);
 			expect(f.order.indexOf("llm.request")).toBeLessThan(f.order.indexOf("delta"));
@@ -183,6 +189,23 @@ describe("Pi X 光执行链", () => {
 			expect(f.turn().status).toBe("error");
 			expect(JSON.stringify(f.turn())).not.toContain(secret);
 		} finally { await f.close(); }
+	});
+
+	it.each(["aborted", "error"] as const)("does not report the SDK's default zero usage after %s", async (stopReason) => {
+		const notifications: TraceNotification[] = [];
+		const collector = new TraceCollector((notification) => notifications.push(notification), []);
+		const model = fauxProvider({ models: [{ id: "faux-1" }] }).provider.getModels()[0]!;
+		collector.beginTurn({ engine: "pi", sessionId: "cancelled", turnIndex: 1, userPrompt: "hi", model: { provider: model.provider, id: model.id }, promptSegments: [],
+			fidelity: { promptSegments: true, rawRequest: false, usage: "exact", subagents: true, compaction: true, approvals: true } });
+		const stream = createAssistantMessageEventStream();
+		const observed = await collector.wrapStream(() => stream, 1000)(model, { messages: [] });
+		stream.end(fauxAssistantMessage("partial response", { stopReason }));
+		await observed.result();
+		collector.endTurn(stopReason);
+		const ended = notifications.findLast((notification) => notification.type === "turn-end")!;
+		if (ended.type !== "turn-end") throw new Error("Missing completed trace");
+		expect(ended.turn.fidelity.usage).toBe("none");
+		expect(ended.turn.events.find((event) => event.type === "llm.response")?.usage).toBeUndefined();
 	});
 
 	it("marks cancellation separately from model errors", async () => {

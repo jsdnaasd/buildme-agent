@@ -33,7 +33,8 @@ async function scan(root: string, maxFileBytes: number, excludeRoot?: string): P
 	async function visit(dir: string, prefix = "") {
 		for (const entry of await readdir(dir, { withFileTypes: true })) {
 			const key = prefix ? `${prefix}/${entry.name}` : entry.name, path = join(dir, entry.name);
-			if (OMIT.has(entry.name) || entry.isSymbolicLink() || (excludeRoot && within(excludeRoot, path))) { excluded.push(key); continue; }
+			const application = entry.name.endsWith(".asar") || entry.name.endsWith(".asar.unpacked") || (entry.isDirectory() && entry.name.endsWith(".app"));
+			if (OMIT.has(entry.name) || application || entry.isSymbolicLink() || (excludeRoot && within(excludeRoot, path))) { excluded.push(key); continue; }
 			if (entry.isDirectory()) await visit(path, key);
 			else if (entry.isFile()) {
 				if ((await lstat(path)).size > maxFileBytes) excluded.push(key);

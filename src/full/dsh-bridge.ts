@@ -8,6 +8,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { installModelSelection } from "@deepseek-ai/dsh-agent";
 import { brandString } from "@deepseek-ai/dsh-brand";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { setApprovalPolicy } from "@deepseek-ai/dsh-user-approval";
 import { JsonRpcLineTransport } from "@deepseek-ai/dsh-sdk-protocol";
 
 /**
@@ -62,6 +63,7 @@ interface BridgeMessage {
 	readonly id: string;
 	readonly role: "user" | "assistant" | "tool";
 	readonly text: string;
+	readonly reasoning?: string;
 	readonly at: string;
 }
 
@@ -99,6 +101,7 @@ function blocksText(content: unknown, includeToolCalls: boolean): string {
 function eventMessage(sessionId: string, event: any): BridgeMessage | undefined {
 	let role: BridgeMessage["role"];
 	let text: string;
+	let reasoning = "";
 	switch (event?.type) {
 		case "user/message": {
 			const message = event.data?.message ?? event.data;
@@ -112,6 +115,7 @@ function eventMessage(sessionId: string, event: any): BridgeMessage | undefined 
 		case "assistant/message":
 			role = "assistant";
 			text = blocksText(event.data?.message?.content, true);
+			reasoning = event.data.message.content.filter((block: any) => block.type === "reasoning").map((block: any) => block.text).join("\n");
 			break;
 		case "tool/result":
 			role = "tool";
@@ -120,9 +124,9 @@ function eventMessage(sessionId: string, event: any): BridgeMessage | undefined 
 		default:
 			return undefined;
 	}
-	if (!text) return undefined;
+	if (!text && !reasoning) return undefined;
 	const time = typeof event.time === "number" ? event.time : Date.now();
-	return { id: `${sessionId}:${String(event.seq)}`, role, text, at: new Date(time).toISOString() };
+	return { id: `${sessionId}:${String(event.seq)}`, role, text, ...(reasoning ? { reasoning } : {}), at: new Date(time).toISOString() };
 }
 
 /** Last assistant text and turn outcome after `firstSeq` (same rule as dsh-headless). */
@@ -219,11 +223,15 @@ class DshBridge {
 			if (exec.agent) this.trace.toolResult(String(exec.agent.session.id), String(exec.callId), exec.name, exec.arguments, result);
 		})));
 		this.disposers.push(c.on("agent/assistant-stream", ({ agent, frame }: any) => {
-			if (frame?.type !== "chunk" || agent?.session?.header?.parentSession !== undefined) return;
+			if (agent?.session?.header?.parentSession !== undefined) return;
 			const sessionId = String(agent.session.id);
+			if (frame.type === "start") { this.transport.notify("stream", { sessionId, type: "response-start" }); return; }
+			if (frame.type !== "chunk") return;
 			const chunk = frame.chunk;
 			if (chunk?.type === "text-delta" && chunk.text) {
 				this.transport.notify("stream", { sessionId, type: "text", delta: chunk.text });
+			} else if (chunk?.type === "reasoning-delta" && chunk.text) {
+				this.transport.notify("stream", { sessionId, type: "reasoning", delta: chunk.text });
 			} else if (chunk?.type === "block-end" && chunk.block?.type === "tool-call") {
 				this.transport.notify("stream", { sessionId, type: "tool", name: chunk.block.name });
 			}
@@ -350,8 +358,10 @@ class DshBridge {
 		await agent.whenIdle();
 		if (pending.cancelled) { this.runningRequests.delete(sessionId); return { sessionId, text: "", reason: "aborted" }; }
 		const presets = (this.ctx as any).get("permissionPresets");
-		const preset = PERMISSION_PRESETS[params.permissionMode ?? "ask"];
+		const automaticComparison = this.comparePolicy(agent.session) && params.permissionMode === "bypass";
+		const preset = PERMISSION_PRESETS[automaticComparison ? "workspace-write" : params.permissionMode ?? "ask"];
 		if (presets && presets.current(agent.session) !== preset) presets.set(agent.session, preset);
+		if (automaticComparison) setApprovalPolicy(agent.session, "never");
 
 		const firstSeq = agent.session.seq;
 		this.trace.configure(sessionId, { ...params, recordRawRequests: raw.recordRawRequests !== false, ...(optionalString(raw, "compareGroupId") ? { compareGroupId: optionalString(raw, "compareGroupId")! } : {}) });

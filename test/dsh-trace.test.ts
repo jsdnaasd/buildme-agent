@@ -40,11 +40,17 @@ describe("DSH Trace actual observation contracts", () => {
 		expect(JSON.stringify(f.notifications)).not.toContain("fixture-secret");
 		expect(turn.events).toHaveLength(2);
 	});
-	it("missing usage stays unavailable, including partially missing multi-round usage", async () => {
+	it("keeps reported usage when a later request is cancelled, without presenting a complete total", async () => {
 		const f = fixture(); f.start(); await f.stream(); await f.stream("root", []); f.end();
+		expect(f.turns()[0]!.fidelity.usage).toBe("partial");
+		expect(f.turns()[0]!.usage).toMatchObject({ inputTokens: 10, outputTokens: 4, reportedCalls: 1, missingCalls: 1 });
+		expect(f.turns()[0]!.usage.modelCalls).toBe(2);
+	});
+	it("keeps all-missing usage unknown and captures only supplied reasoning with redaction", async () => {
+		const f = fixture(); f.start(); await f.stream("root", [{ type: "reasoning-delta", index: 0, text: "检查 fixture-secret" }]); f.end("root", "aborted");
 		expect(f.turns()[0]!.fidelity.usage).toBe("none");
 		expect(f.turns()[0]!.usage).not.toHaveProperty("inputTokens");
-		expect(f.turns()[0]!.usage.modelCalls).toBe(2);
+		expect(f.turns()[0]!.events.find(e => e.type === "llm.response")).toMatchObject({ reasoning: "检查 «已隐藏»", reasoningTruncated: false });
 	});
 	it("separates child tokens and links child ids", async () => {
 		const f = fixture(); f.start(); await f.stream(); f.start("child", "root"); await f.stream("child"); f.end("child"); f.end();

@@ -59,6 +59,7 @@ describe("comparison coordination", () => {
 		const child = { ...parent, id: "child", parentTurnId: "parent", events: [] };
 		expect(compareMetrics([parent, child, parent])).toMatchObject({ tokens: 14, toolCalls: 1, modelCalls: 1, subagents: 1 });
 		expect(compareMetrics([parent, undefined])).not.toHaveProperty("tokens");
+		expect(compareMetrics([{ ...parent, fidelity: { ...parent.fidelity, usage: "partial" } }])).not.toHaveProperty("tokens");
 		expect(compareMetrics([{ ...parent, fidelity: { ...parent.fidelity, subagents: false } }])).toMatchObject({ usage: "none" });
 		expect(compareMetrics([{ ...parent, fidelity: { ...parent.fidelity, subagents: false } }])).not.toHaveProperty("modelCalls");
 		expect(metricDifference(undefined, 2)).toEqual({}); expect(metricDifference(0, 3)).toEqual({ delta: 3 }); expect(metricDifference(2, 3)).toEqual({ delta: 1, percent: 50 });
